@@ -19,10 +19,17 @@ import sys
 if __package__ in (None, ""):  # allow `python src/dataset/baseline/build.py`
     sys.path.insert(0, str(pathlib.Path(__file__).resolve().parents[2]))
 
-from dataset.baseline import source as src
-from dataset.baseline.schema import FIELDS, SPLIT, anomaly, crib
+from algorithms.baseline import source as src
+from algorithms.baseline.schema import FIELDS, SPLIT, anomaly, crib
 
-OUTPUT = pathlib.Path(__file__).parent / "data" / f"{SPLIT}.jsonl"
+#: Repository root, three levels up from src/algorithms/baseline/.
+ROOT = pathlib.Path(__file__).resolve().parents[3]
+
+#: The dataset lives under src/dataset/, separate from the code that generates it.
+#: This directory is what gets uploaded to the HuggingFace Hub, so it holds only the
+#: artifact and its card.
+DATASET_DIR = ROOT / "src" / "dataset" / "baseline"
+OUTPUT = DATASET_DIR / "data" / f"{SPLIT}.jsonl"
 
 
 def letters_only(text: str) -> str:

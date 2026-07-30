@@ -129,6 +129,10 @@ Transcribed from the raw wikitext of the English Wikipedia *Kryptos* article via
 MediaWiki `action=parse` API, retrieved 2026-07-30. Raw wikitext is used deliberately:
 HTML-to-text conversion of the same page corrupts the ciphertext.
 
+This directory holds only the artifact and this card. The canonical source text, schema
+and builder that produce `data/test.jsonl` live in `src/algorithms/baseline/`, and the
+verification suite in `tests/`.
+
 Because cipher implementations are out of scope at this stage, the transcription is not
 validated by round-tripping through a solver. It is validated four independent ways, each
 of which fails on a single altered character:

@@ -16,9 +16,9 @@ See `docs/` for the full design.
 
 | component | state |
 |---|---|
-| `src/dataset/baseline` | four authentic passages, verified |
-| `src/dataset/*` isomorph generators | not started |
-| `src/algorithms` | not started |
+| baseline dataset | four authentic passages, verified |
+| isomorph generators | not started |
+| cipher implementations | not started |
 | scoring (CER / Levenshtein) | not started |
 
 ## Baseline dataset
@@ -32,8 +32,13 @@ scoring rules, and the transcription-verification argument.
 
 ## Layout
 
+`src/dataset/` holds datasets only — the artifact and its card, nothing else, so a
+dataset directory can be uploaded to the Hub as-is. All code lives under
+`src/algorithms/`.
+
 ```
-src/dataset/baseline/     baseline dataset: source text, schema, builder, artifact, card
+src/dataset/baseline/     the dataset: data/test.jsonl + HuggingFace card
+src/algorithms/baseline/  canonical source text, schema and builder for that dataset
 src/algorithms/           cipher implementations (not yet started)
 tests/                    verification
 docs/                     design documents
@@ -43,9 +48,9 @@ docs/                     design documents
 
 ```bash
 .venv/bin/python -m pip install -e ".[dev]"
-.venv/bin/python -m pytest                                  # verification suite
-.venv/bin/python src/dataset/baseline/build.py --check      # artifact matches its source
-.venv/bin/python src/dataset/baseline/build.py              # regenerate
+.venv/bin/python -m pytest                                     # verification suite
+.venv/bin/python src/algorithms/baseline/build.py --check      # artifact matches its source
+.venv/bin/python src/algorithms/baseline/build.py              # regenerate
 ```
 
 `build.py` is deterministic; the generated artifact is committed so consumers need not run

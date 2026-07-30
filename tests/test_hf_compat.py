@@ -12,12 +12,12 @@ import pathlib
 
 import pytest
 
-from dataset.baseline import source as src
-from dataset.baseline.schema import SPLIT, hf_features
+from algorithms.baseline import build
+from algorithms.baseline.schema import SPLIT, hf_features
 
 datasets = pytest.importorskip("datasets", reason="datasets is a dev dependency")
 
-DATA = pathlib.Path(src.__file__).parent / "data" / f"{SPLIT}.jsonl"
+DATA = build.OUTPUT
 
 
 @pytest.fixture(scope="module")
@@ -58,7 +58,7 @@ def test_values_survive_the_round_trip(loaded):
 
 def test_dataset_card_is_present_and_declares_the_config():
     """The folder is uploaded to the Hub as-is, so the card must travel with it."""
-    card = pathlib.Path(src.__file__).parent / "README.md"
+    card = build.DATASET_DIR / "README.md"
     text = card.read_text(encoding="utf-8")
     assert text.startswith("---")
     assert "configs:" in text

@@ -20,15 +20,14 @@ known to discriminate rather than passing vacuously.
 from __future__ import annotations
 
 import json
-import pathlib
 from collections import Counter, defaultdict
 
 import pytest
 
-from dataset.baseline import build, source as src
-from dataset.baseline.schema import ANOMALY_FIELDS, CRIB_FIELDS, FIELDS
+from algorithms.baseline import build, source as src
+from algorithms.baseline.schema import ANOMALY_FIELDS, CRIB_FIELDS, FIELDS
 
-DATA = pathlib.Path(src.__file__).parent / "data" / "test.jsonl"
+DATA = build.OUTPUT
 
 EXPECTED_LENGTHS = {"K1": 63, "K2": 372, "K3": 337, "K4": 97}
 LEFT_PANEL_TOTAL = 869
