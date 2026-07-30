@@ -1,8 +1,9 @@
 """Build the Kryptos baseline dataset.
 
-Emits ``data/test.jsonl``: four records, one per carved passage, each posing the same
-problem -- given this ciphertext, recover the plaintext. K4 is unsolved, so its record
-carries a null plaintext and is scored against Sanborn's four confirmed cribs instead.
+Emits ``baseline/test.jsonl`` under the dataset directory: four records, one per carved
+passage, each posing the same problem -- given this ciphertext, recover the plaintext.
+K4 is unsolved, so its record carries a null answer and is scored against Sanborn's four
+confirmed cribs instead.
 
 Deterministic and re-runnable. ``--check`` rebuilds in memory and compares against the
 committed file without writing, so CI can prove the artifact matches its source.
@@ -16,20 +17,40 @@ import json
 import pathlib
 import sys
 
-if __package__ in (None, ""):  # allow `python src/dataset/baseline/build.py`
-    sys.path.insert(0, str(pathlib.Path(__file__).resolve().parents[2]))
+if __package__ in (None, ""):  # allow running the file directly
+    sys.path.insert(0, str(pathlib.Path(__file__).resolve().parents[3]))
 
-from algorithms.baseline import source as src
-from algorithms.baseline.schema import FIELDS, SPLIT, anomaly, crib
+from kryptos.algorithms.baseline import source as src
+from kryptos.algorithms.baseline.schema import CANARY, CONFIG, FIELDS, SPLIT, anomaly, crib
 
-#: Repository root, three levels up from src/algorithms/baseline/.
-ROOT = pathlib.Path(__file__).resolve().parents[3]
+#: Repository root, four levels up from src/kryptos/algorithms/baseline/.
+ROOT = pathlib.Path(__file__).resolve().parents[4]
 
-#: The dataset lives under src/dataset/, separate from the code that generates it.
-#: This directory is what gets uploaded to the HuggingFace Hub, so it holds only the
-#: artifact and its card.
-DATASET_DIR = ROOT / "src" / "dataset" / "baseline"
-OUTPUT = DATASET_DIR / "data" / f"{SPLIT}.jsonl"
+#: The HuggingFace dataset repository root. Holds only the card and the config
+#: directories, so it can be uploaded to the Hub as-is.
+DATASET_DIR = ROOT / "src" / "kryptos" / "dataset"
+OUTPUT = DATASET_DIR / CONFIG / f"{SPLIT}.jsonl"
+
+QUAGMIRE_SOLUTION = (
+    "Quagmire III polyalphabetic substitution. Build the mixed alphabet by writing "
+    "{alphabet_keyword}, dropping repeated letters, then appending the unused letters of "
+    "the alphabet in order, giving {keyed_alphabet}. The indicator keyword "
+    "{indicator_keyword} gives a period of {period}: the message is enciphered with "
+    "{period} shifted copies of that alphabet, selected by position modulo {period}. "
+    "Decrypt each position with its own shifted alphabet. A literal '?' is copied through "
+    "unenciphered and does not advance the key."
+)
+
+TRANSPOSITION_SOLUTION = (
+    "Route transposition. The letters are permuted rather than substituted, so letter "
+    "frequencies and the index of coincidence are unchanged from ordinary English and the "
+    "ciphertext is an exact anagram of the plaintext -- which is what rules out frequency "
+    "analysis and identifies the cipher family. Recovery means inverting a multi-stage "
+    "geometric route: the text is written into a rectangular grid, rotated, resliced to a "
+    "different width, rotated again, and read off by columns. The exact grid dimensions "
+    "and rotation sequence are not asserted here; they are pinned down alongside the "
+    "cipher implementations. A literal '?' is copied through."
+)
 
 
 def letters_only(text: str) -> str:
@@ -47,6 +68,7 @@ def _record(
     readable_plaintext: str | None,
     cipher_family: str,
     cipher_name: str,
+    solution: str | None,
     *,
     alphabet_keyword: str | None = None,
     indicator_keyword: str | None = None,
@@ -57,31 +79,37 @@ def _record(
     plaintext = normalize(readable_plaintext) if readable_plaintext else None
     solved = readable_plaintext is not None
     return {
+        # --- meta ---
         "id": f"kryptos-baseline-{passage.lower()}",
         "passage": passage,
         "solved": solved,
-        "ciphertext": ciphertext,
-        "ciphertext_letters_only": letters_only(ciphertext),
-        "ciphertext_length": len(ciphertext),
-        "plaintext": plaintext,
-        "plaintext_letters_only": letters_only(plaintext) if plaintext else None,
-        "plaintext_readable": readable_plaintext,
+        "canary": CANARY,
+        # --- input: what a solver is given ---
+        "problem": ciphertext,
+        "problem_letters_only": letters_only(ciphertext),
+        "problem_length": len(ciphertext),
+        "cribs": cribs or [],
+        # --- ground truth: never shown to the model under evaluation ---
+        "solution": solution,
+        "answer": letters_only(plaintext) if plaintext else None,
+        "answer_readable": readable_plaintext,
         "cipher_family": cipher_family,
         "cipher_name": cipher_name,
         "alphabet_keyword": alphabet_keyword,
         "keyed_alphabet": src.KEYED_ALPHABET if alphabet_keyword else None,
         "indicator_keyword": indicator_keyword,
         "period": period,
-        "cribs": cribs or [],
         "anomalies": anomalies or [],
+        # --- scoring ---
         # K4 has 24 known plaintext characters and no reference string, so full-text
         # CER is undefined for it. The schema says so rather than implying otherwise.
         "scoring_metric": "cer" if solved else "crib_match",
-        "scoring_reference": "plaintext_letters_only" if solved else "cribs",
+        "scoring_reference": "answer" if solved else "cribs",
         "scoring_threshold": 0.0 if solved else None,
+        # --- provenance ---
         "source_urls": list(src.SOURCE_URLS),
         "retrieved": src.RETRIEVED,
-        "sha256_ciphertext": hashlib.sha256(ciphertext.encode()).hexdigest(),
+        "sha256_problem": hashlib.sha256(ciphertext.encode()).hexdigest(),
     }
 
 
@@ -98,6 +126,12 @@ def build() -> list[dict]:
             src.K1_PLAINTEXT,
             "polyalphabetic_substitution",
             "Quagmire III",
+            QUAGMIRE_SOLUTION.format(
+                alphabet_keyword=src.K1_ALPHABET_KEYWORD,
+                keyed_alphabet=src.KEYED_ALPHABET,
+                indicator_keyword=src.K1_INDICATOR_KEYWORD,
+                period=src.K1_PERIOD,
+            ),
             alphabet_keyword=src.K1_ALPHABET_KEYWORD,
             indicator_keyword=src.K1_INDICATOR_KEYWORD,
             period=src.K1_PERIOD,
@@ -116,6 +150,12 @@ def build() -> list[dict]:
             src.K2_PLAINTEXT,
             "polyalphabetic_substitution",
             "Quagmire III",
+            QUAGMIRE_SOLUTION.format(
+                alphabet_keyword=src.K2_ALPHABET_KEYWORD,
+                keyed_alphabet=src.KEYED_ALPHABET,
+                indicator_keyword=src.K2_INDICATOR_KEYWORD,
+                period=src.K2_PERIOD,
+            ),
             alphabet_keyword=src.K2_ALPHABET_KEYWORD,
             indicator_keyword=src.K2_INDICATOR_KEYWORD,
             period=src.K2_PERIOD,
@@ -151,6 +191,7 @@ def build() -> list[dict]:
             src.K3_PLAINTEXT,
             "transposition",
             "Route transposition",
+            TRANSPOSITION_SOLUTION,
             anomalies=[
                 anomaly(
                     "deliberate_misspelling",
@@ -167,6 +208,7 @@ def build() -> list[dict]:
             None,
             "unknown",
             "unknown",
+            None,  # unsolved: no method is known, so none is asserted
             cribs=k4_cribs,
         ),
     ]

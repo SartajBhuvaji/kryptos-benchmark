@@ -23,25 +23,32 @@ See `docs/` for the full design.
 
 ## Baseline dataset
 
-The four Kryptos passages exactly as carved, one record each. Destined for the
-HuggingFace Hub, so it is authored in Hub-compatible form: a single `test` split at
-`src/dataset/baseline/data/test.jsonl` with a dataset card alongside it.
+The four Kryptos passages exactly as carved, one record per passage. Published to the
+HuggingFace Hub as the `baseline` config of the `kryptos-benchmark` dataset, so it is
+authored in Hub-compatible form and `src/kryptos/dataset/` can be uploaded as-is.
 
-See [`src/dataset/baseline/README.md`](src/dataset/baseline/README.md) for the schema,
+Field naming follows established benchmarks — `problem` / `solution` / `answer`, as in
+MATH-500 — and problem is separated from ground truth by field grouping rather than by
+separate files, which is what every major benchmark does. `INPUT_FIELDS` and
+`GROUND_TRUTH_FIELDS` in `schema.py` make that split machine-readable so a harness never
+has to hardcode column names.
+
+See [`src/kryptos/dataset/README.md`](src/kryptos/dataset/README.md) for the schema,
 scoring rules, and the transcription-verification argument.
 
 ## Layout
 
-`src/dataset/` holds datasets only — the artifact and its card, nothing else, so a
-dataset directory can be uploaded to the Hub as-is. All code lives under
-`src/algorithms/`.
+`src/kryptos/dataset/` is the HuggingFace dataset repository root: the card plus one
+directory per config. It holds no code. Everything else lives under
+`src/kryptos/algorithms/`.
 
 ```
-src/dataset/baseline/     the dataset: data/test.jsonl + HuggingFace card
-src/algorithms/baseline/  canonical source text, schema and builder for that dataset
-src/algorithms/           cipher implementations (not yet started)
-tests/                    verification
-docs/                     design documents
+src/kryptos/dataset/README.md          HuggingFace dataset card
+src/kryptos/dataset/baseline/          the baseline config: test.jsonl
+src/kryptos/algorithms/baseline/       source text, schema and builder for that config
+src/kryptos/algorithms/                cipher implementations (not yet started)
+tests/                                 verification
+docs/                                  design documents
 ```
 
 ## Development
@@ -49,8 +56,8 @@ docs/                     design documents
 ```bash
 .venv/bin/python -m pip install -e ".[dev]"
 .venv/bin/python -m pytest                                     # verification suite
-.venv/bin/python src/algorithms/baseline/build.py --check      # artifact matches its source
-.venv/bin/python src/algorithms/baseline/build.py              # regenerate
+.venv/bin/python src/kryptos/algorithms/baseline/build.py --check      # artifact matches its source
+.venv/bin/python src/kryptos/algorithms/baseline/build.py              # regenerate
 ```
 
 `build.py` is deterministic; the generated artifact is committed so consumers need not run
