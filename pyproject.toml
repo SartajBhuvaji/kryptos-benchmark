@@ -12,6 +12,7 @@ dependencies = []
 dev = [
     "pytest>=8.0",
     "datasets>=2.19",
+    "huggingface-hub>=0.23",
 ]
 
 [tool.pytest.ini_options]

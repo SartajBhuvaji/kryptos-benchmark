@@ -69,3 +69,29 @@ def test_dataset_card_is_present_and_declares_the_config():
     assert "configs:" in text
     assert f"split: {SPLIT}" in text
     assert f"config_name: {CONFIG}" in text
+
+
+# --- publish path ----------------------------------------------------------------
+
+
+def test_preflight_passes_on_the_committed_dataset():
+    """The publish path refuses to upload a stale artifact or an invalid card, so a
+    green preflight is what makes `python -m kryptos.huggingface.push` safe to run."""
+    from kryptos.huggingface import push
+
+    checks = push.preflight()
+    assert any("matches builder output" in c for c in checks)
+    assert any("metadata validates" in c for c in checks)
+    assert any("loads as 4 rows" in c for c in checks)
+
+
+def test_preflight_rejects_a_stale_artifact(tmp_path, monkeypatch):
+    """Guards the check above against passing vacuously."""
+    from kryptos.huggingface import push
+
+    stale = tmp_path / "test.jsonl"
+    stale.write_text('{"id": "not-the-real-thing"}\n', encoding="utf-8")
+    monkeypatch.setattr(push.build, "OUTPUT", stale)
+
+    with pytest.raises(push.PreflightError, match="stale"):
+        push.preflight()

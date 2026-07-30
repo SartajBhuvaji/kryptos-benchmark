@@ -1,0 +1,171 @@
+"""Publish the Kryptos dataset directory to the HuggingFace Hub.
+
+``src/kryptos/dataset/`` is authored as a Hub repository already -- a card plus one
+directory per config -- so publishing is a folder upload with no restructuring step.
+
+Every push runs preflight checks first. Uploading a stale artifact or a card whose
+declared config paths do not resolve produces a dataset that fails to load for everyone
+who tries it, and the Hub caches aggressively, so it is worth refusing early:
+
+* the committed JSONL still matches what the builder produces
+* the card carries YAML frontmatter declaring the config and split
+* every path the card points at exists
+* ``load_dataset`` succeeds against the declared features
+
+Usage::
+
+    python -m kryptos.huggingface.push --dry-run
+    python -m kryptos.huggingface.push
+    python -m kryptos.huggingface.push --public       # deliberate, never the default
+"""
+
+from __future__ import annotations
+
+import argparse
+import pathlib
+import re
+import sys
+
+if __package__ in (None, ""):  # allow running the file directly
+    sys.path.insert(0, str(pathlib.Path(__file__).resolve().parents[2]))
+
+from kryptos.algorithms.baseline import build
+from kryptos.algorithms.baseline.schema import CONFIG, SPLIT, hf_features
+
+DEFAULT_REPO_ID = "sartajbhuvaji/kryptos-bench"
+
+DATASET_DIR = build.DATASET_DIR
+CARD = DATASET_DIR / "README.md"
+
+
+class PreflightError(RuntimeError):
+    """Raised when the dataset directory is not fit to publish."""
+
+
+def _frontmatter(card_text: str) -> str:
+    match = re.match(r"^---\n(.*?)\n---\n", card_text, re.S)
+    if not match:
+        raise PreflightError(f"{CARD} has no YAML frontmatter; the Hub needs it to "
+                             "resolve configs and render the card")
+    return match.group(1)
+
+
+def preflight() -> list[str]:
+    """Verify the dataset directory is publishable. Returns a list of check descriptions."""
+    checks: list[str] = []
+
+    if not DATASET_DIR.is_dir():
+        raise PreflightError(f"missing dataset directory {DATASET_DIR}")
+
+    if not build.OUTPUT.exists():
+        raise PreflightError(f"missing artifact {build.OUTPUT}; run the builder first")
+    if build.OUTPUT.read_text(encoding="utf-8") != build.serialize(build.build()):
+        raise PreflightError(
+            f"{build.OUTPUT} is stale -- it does not match what the builder produces. "
+            "Re-run the builder and commit the result before publishing."
+        )
+    checks.append(f"artifact matches builder output ({build.OUTPUT.name})")
+
+    if not CARD.exists():
+        raise PreflightError(f"missing dataset card {CARD}")
+    front = _frontmatter(CARD.read_text(encoding="utf-8"))
+    for needle in (f"config_name: {CONFIG}", f"split: {SPLIT}"):
+        if needle not in front:
+            raise PreflightError(f"card frontmatter does not declare {needle!r}")
+    checks.append(f"card declares config {CONFIG!r} and split {SPLIT!r}")
+
+    for declared in re.findall(r"^\s*path:\s*(\S+)\s*$", front, re.M):
+        if not (DATASET_DIR / declared).exists():
+            raise PreflightError(f"card points at {declared!r}, which does not exist")
+        checks.append(f"declared path resolves: {declared}")
+
+    # The Hub only warns about invalid card metadata during upload, which is easy to miss
+    # in a wall of progress bars -- and an unrecognised task_category silently drops the
+    # dataset out of Hub search. Promote it to a hard failure here instead.
+    try:
+        from huggingface_hub import DatasetCard
+    except ImportError:
+        checks.append("SKIPPED metadata validation (huggingface_hub not installed)")
+    else:
+        import warnings
+
+        with warnings.catch_warnings(record=True) as caught:
+            warnings.simplefilter("always")
+            DatasetCard.load(str(CARD)).validate()
+        if caught:
+            raise PreflightError(
+                "card metadata is invalid:\n  "
+                + "\n  ".join(str(w.message) for w in caught)
+            )
+        checks.append("card metadata validates against Hub rules")
+
+    try:
+        from datasets import load_dataset
+    except ImportError:
+        checks.append("SKIPPED load check (datasets not installed)")
+    else:
+        ds = load_dataset(
+            "json", data_files={SPLIT: str(build.OUTPUT)}, features=hf_features()
+        )
+        checks.append(f"loads as {ds[SPLIT].num_rows} rows against declared features")
+
+    return checks
+
+
+def push(repo_id: str, *, private: bool, dry_run: bool) -> str:
+    from huggingface_hub import HfApi
+
+    api = HfApi()
+    who = api.whoami()
+    url = f"https://huggingface.co/datasets/{repo_id}"
+
+    if dry_run:
+        files = sorted(
+            p.relative_to(DATASET_DIR).as_posix()
+            for p in DATASET_DIR.rglob("*")
+            if p.is_file()
+        )
+        print(f"\nDRY RUN -- nothing uploaded. Authenticated as {who['name']}.")
+        print(f"Would create {'private' if private else 'PUBLIC'} dataset {repo_id}")
+        print(f"Would upload {len(files)} file(s) from {DATASET_DIR}:")
+        for f in files:
+            print(f"    {f}")
+        return url
+
+    api.create_repo(repo_id=repo_id, repo_type="dataset", private=private, exist_ok=True)
+    api.upload_folder(
+        repo_id=repo_id,
+        repo_type="dataset",
+        folder_path=str(DATASET_DIR),
+        commit_message="Add Kryptos baseline config",
+    )
+    return url
+
+
+def main() -> int:
+    ap = argparse.ArgumentParser(description=__doc__)
+    ap.add_argument("--repo-id", default=DEFAULT_REPO_ID)
+    ap.add_argument(
+        "--public",
+        action="store_true",
+        help="publish world-visible; private by default because this cannot be undone "
+             "for anything that has already crawled or mirrored it",
+    )
+    ap.add_argument("--dry-run", action="store_true", help="run checks, upload nothing")
+    args = ap.parse_args()
+
+    try:
+        for check in preflight():
+            print(f"  ok  {check}")
+    except PreflightError as exc:
+        print(f"preflight failed: {exc}", file=sys.stderr)
+        return 1
+
+    url = push(args.repo_id, private=not args.public, dry_run=args.dry_run)
+    if not args.dry_run:
+        print(f"\npublished {'PUBLIC' if args.public else 'private'} dataset: {url}")
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

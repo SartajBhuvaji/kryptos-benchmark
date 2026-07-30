@@ -21,6 +21,9 @@ See `docs/` for the full design.
 | cipher implementations | not started |
 | scoring (CER / Levenshtein) | not started |
 
+Published privately to the Hub as
+[`sartajbhuvaji/kryptos-bench`](https://huggingface.co/datasets/sartajbhuvaji/kryptos-bench).
+
 ## Baseline dataset
 
 The four Kryptos passages exactly as carved, one record per passage. Published to the
@@ -47,6 +50,7 @@ src/kryptos/dataset/README.md          HuggingFace dataset card
 src/kryptos/dataset/baseline/          the baseline config: test.jsonl
 src/kryptos/algorithms/baseline/       source text, schema and builder for that config
 src/kryptos/algorithms/                cipher implementations (not yet started)
+src/kryptos/huggingface/               Hub publishing, with preflight checks
 tests/                                 verification
 docs/                                  design documents
 ```
@@ -58,6 +62,17 @@ docs/                                  design documents
 .venv/bin/python -m pytest                                     # verification suite
 .venv/bin/python src/kryptos/algorithms/baseline/build.py --check      # artifact matches its source
 .venv/bin/python src/kryptos/algorithms/baseline/build.py              # regenerate
+
+.venv/bin/python -m kryptos.huggingface.push --dry-run          # check, upload nothing
+.venv/bin/python -m kryptos.huggingface.push                    # publish (private)
+```
+
+Publishing runs preflight first and refuses to upload if the committed artifact is stale,
+the card's declared config paths do not resolve, the card metadata fails the Hub's
+validation, or the data does not load against its declared features. `--public` is never
+the default: visibility is hard to walk back once anything has crawled or mirrored it.
+
+```bash
 ```
 
 `build.py` is deterministic; the generated artifact is committed so consumers need not run
