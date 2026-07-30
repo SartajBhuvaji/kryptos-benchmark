@@ -1,0 +1,24 @@
+[project]
+name = "kryptos-benchmark"
+version = "0.1.0"
+description = "A contamination-resistant benchmark for evaluating LLMs on classical cryptanalysis, modelled on the Kryptos sculpture"
+readme = "README.md"
+requires-python = ">=3.11"
+license = { text = "MIT" }
+authors = [{ name = "Sartaj Bhuvaji", email = "sbhuvaj@gmail.com" }]
+dependencies = []
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=8.0",
+    "datasets>=2.19",
+]
+
+[tool.pytest.ini_options]
+pythonpath = ["src"]
+testpaths = ["tests"]
+addopts = "-q"
+
+[tool.ruff]
+line-length = 100
+target-version = "py311"
