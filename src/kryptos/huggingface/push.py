@@ -137,9 +137,21 @@ def push(repo_id: str, *, private: bool, dry_run: bool) -> str:
         repo_id=repo_id,
         repo_type="dataset",
         folder_path=str(DATASET_DIR),
-        commit_message="Add Kryptos baseline config",
+        commit_message="Update Kryptos baseline config",
     )
     return url
+
+
+def actual_visibility(repo_id: str) -> str:
+    """Report the repo's real visibility rather than what was requested.
+
+    ``create_repo(exist_ok=True)`` does not change the visibility of a repo that already
+    exists, so a push that passes ``private=True`` at an already-public repo leaves it
+    public. Reporting the requested flag would be actively misleading.
+    """
+    from huggingface_hub import HfApi
+
+    return "private" if HfApi().dataset_info(repo_id).private else "PUBLIC"
 
 
 def main() -> int:
@@ -163,7 +175,7 @@ def main() -> int:
 
     url = push(args.repo_id, private=not args.public, dry_run=args.dry_run)
     if not args.dry_run:
-        print(f"\npublished {'PUBLIC' if args.public else 'private'} dataset: {url}")
+        print(f"\npublished {actual_visibility(args.repo_id)} dataset: {url}")
     return 0
 
 
