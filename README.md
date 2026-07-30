@@ -19,7 +19,7 @@ See `docs/` for the full design.
 | baseline dataset | four authentic passages, verified |
 | isomorph generators | not started |
 | cipher implementations | not started |
-| scoring (CER / Levenshtein) | not started |
+| scoring (CER / Levenshtein) | in the benchmark runner |
 
 Published privately to the Hub as
 [`sartajbhuvaji/kryptos-bench`](https://huggingface.co/datasets/sartajbhuvaji/kryptos-bench).
@@ -51,6 +51,7 @@ src/kryptos/dataset/baseline/          the baseline config: test.jsonl
 src/kryptos/algorithms/baseline/       source text, schema and builder for that config
 src/kryptos/algorithms/                cipher implementations (not yet started)
 src/kryptos/huggingface/               Hub publishing, with preflight checks
+src/kryptos/eval/                      benchmark runner (loads the dataset, calls a model)
 tests/                                 verification
 docs/                                  design documents
 ```
@@ -65,6 +66,17 @@ docs/                                  design documents
 
 .venv/bin/python -m kryptos.huggingface.push --dry-run          # check, upload nothing
 .venv/bin/python -m kryptos.huggingface.push                    # publish (private)
+```
+
+Running the benchmark against a model needs the `eval` extra and an Anthropic API key.
+It only ever sends the dataset's input columns to the model — a test asserts no
+ground-truth field appears in any generated prompt.
+
+```bash
+.venv/bin/python -m pip install -e ".[eval]"
+.venv/bin/python src/kryptos/eval/run_benchmark.py --help
+.venv/bin/python src/kryptos/eval/run_benchmark.py --passages K1 K3
+.venv/bin/python src/kryptos/eval/run_benchmark.py --delimited   # tokenization mitigation
 ```
 
 Publishing runs preflight first and refuses to upload if the committed artifact is stale,
