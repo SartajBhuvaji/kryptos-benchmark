@@ -33,6 +33,13 @@ if __package__ in (None, ""):  # allow running the file directly
 
 from kryptos.algorithms.baseline import build
 from kryptos.algorithms.baseline.schema import CONFIG, SPLIT, hf_features
+from kryptos.algorithms.isomorph import build as isomorph_build
+from kryptos.algorithms.isomorph import schema as isomorph_schema
+
+#: Every config the builders produce, baseline first. The card must declare all of them
+#: and each must load; a config that exists on disk but not in the card uploads as files
+#: the Hub will never surface.
+ALL_CONFIGS: tuple[str, ...] = (CONFIG, *(c.name for c in isomorph_schema.CONFIGS))
 
 DEFAULT_REPO_ID = "sartajbhuvaji/kryptos-bench"
 
@@ -85,6 +92,28 @@ def publishable_files() -> list[str]:
     return sorted(kept)
 
 
+def _expected_artifacts() -> list[tuple[str, pathlib.Path, str]]:
+    """Every committed data file with what its builder currently produces.
+
+    One list so the freshness check cannot silently cover the baseline and skip the
+    isomorph configs -- the failure mode of adding configs to a check written for one.
+    """
+    artifacts = [(CONFIG, build.OUTPUT, build.serialize(build.build()))]
+    artifacts += [
+        (
+            config.name,
+            isomorph_build.output_for(config),
+            isomorph_build.serialize(isomorph_build.build_config(config)),
+        )
+        for config in isomorph_schema.CONFIGS
+    ]
+    return artifacts
+
+
+def _features_for(name: str):
+    return hf_features() if name == CONFIG else isomorph_schema.hf_features(name)
+
+
 def preflight() -> list[str]:
     """Verify the dataset directory is publishable. Returns a list of check descriptions."""
     checks: list[str] = []
@@ -103,22 +132,38 @@ def preflight() -> list[str]:
         )
     checks.append(f"{len(publishable_files())} file(s) to upload, all recognised types")
 
-    if not build.OUTPUT.exists():
-        raise PreflightError(f"missing artifact {build.OUTPUT}; run the builder first")
-    if build.OUTPUT.read_text(encoding="utf-8") != build.serialize(build.build()):
-        raise PreflightError(
-            f"{build.OUTPUT} is stale -- it does not match what the builder produces. "
-            "Re-run the builder and commit the result before publishing."
-        )
-    checks.append(f"artifact matches builder output ({build.OUTPUT.name})")
+    for name, target, payload in _expected_artifacts():
+        if not target.exists():
+            raise PreflightError(f"missing artifact {target}; run the builder first")
+        if target.read_text(encoding="utf-8") != payload:
+            raise PreflightError(
+                f"{target} is stale -- it does not match what the builder produces. "
+                "Re-run the builder and commit the result before publishing."
+            )
+        checks.append(f"artifact matches builder output ({name})")
 
     if not CARD.exists():
         raise PreflightError(f"missing dataset card {CARD}")
     front = _frontmatter(CARD.read_text(encoding="utf-8"))
-    for needle in (f"config_name: {CONFIG}", f"split: {SPLIT}"):
-        if needle not in front:
-            raise PreflightError(f"card frontmatter does not declare {needle!r}")
-    checks.append(f"card declares config {CONFIG!r} and split {SPLIT!r}")
+    for name in ALL_CONFIGS:
+        if f"config_name: {name}" not in front:
+            raise PreflightError(
+                f"card frontmatter does not declare config {name!r}. Every config the "
+                "builders produce must be declared, or it uploads as files the Hub will "
+                "not surface."
+            )
+    if f"split: {SPLIT}" not in front:
+        raise PreflightError(f"card frontmatter does not declare split {SPLIT!r}")
+    checks.append(f"card declares all {len(ALL_CONFIGS)} config(s) and split {SPLIT!r}")
+
+    # The reverse direction: a config declared in the card but never built would resolve
+    # its path only because a stale file happened to survive on disk.
+    declared_configs = set(re.findall(r"^\s*-?\s*config_name:\s*(\S+)\s*$", front, re.M))
+    unknown = declared_configs - set(ALL_CONFIGS)
+    if unknown:
+        raise PreflightError(
+            f"card declares config(s) no builder produces: {sorted(unknown)}"
+        )
 
     for declared in re.findall(r"^\s*path:\s*(\S+)\s*$", front, re.M):
         if not (DATASET_DIR / declared).exists():
@@ -150,10 +195,13 @@ def preflight() -> list[str]:
     except ImportError:
         checks.append("SKIPPED load check (datasets not installed)")
     else:
-        ds = load_dataset(
-            "json", data_files={SPLIT: str(build.OUTPUT)}, features=hf_features()
-        )
-        checks.append(f"loads as {ds[SPLIT].num_rows} rows against declared features")
+        for name, target, _ in _expected_artifacts():
+            ds = load_dataset(
+                "json", data_files={SPLIT: str(target)}, features=_features_for(name)
+            )
+            checks.append(
+                f"{name} loads as {ds[SPLIT].num_rows} rows against declared features"
+            )
 
     return checks
 

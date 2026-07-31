@@ -86,9 +86,14 @@ def test_preflight_passes_on_the_committed_dataset():
 
 
 def test_publishable_files_are_the_card_the_data_and_the_example():
+    """Derived from the config list rather than hardcoded, so adding a config does not
+    need this test edited -- which would defeat the point of having it."""
     from kryptos.huggingface import push
 
-    assert push.publishable_files() == ["README.md", "baseline/test.jsonl", "example.py"]
+    expected = sorted(
+        ["README.md", "example.py"] + [f"{name}/{SPLIT}.jsonl" for name in push.ALL_CONFIGS]
+    )
+    assert push.publishable_files() == expected
 
 
 def test_build_residue_is_never_published(tmp_path, monkeypatch):
