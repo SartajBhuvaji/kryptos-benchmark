@@ -25,9 +25,10 @@ eval = [
 where = ["src"]
 
 [tool.setuptools.package-data]
-# The quadgram table is data the scoring module reads at runtime, so it has to travel
-# with an installed package rather than only working from a source checkout.
+# Committed corpora the code reads at runtime, so they have to travel with an installed
+# package rather than only working from a source checkout.
 "kryptos.scoring.data" = ["*.txt.gz", "PROVENANCE.md"]
+"kryptos.algorithms.isomorph.data" = ["*.jsonl.gz", "PROVENANCE.md"]
 
 [tool.pytest.ini_options]
 pythonpath = ["src"]

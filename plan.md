@@ -21,10 +21,10 @@ not during.
 | 0 — Baseline | 7 / 7 ✅ | Published as `sartajbhuvaji/kryptos-bench`, config `baseline` |
 | 1 — Cipher implementations | 22 / 22 ✅ | PR #1–#4. K3's route now published as data |
 | 2 — Scoring module | 10 / 10 ✅ | PR #5, #6. Thresholds are asserted, not yet calibrated |
-| 3 — Isomorph generation | 0 / 18 | Blocked on two decision gates in 3.1 |
+| 3 — Isomorph generation | 6 / 18 | PR #7. Gates resolved; 3.3 generators next |
 | 4 — Tiers and paradigms | 1 / 13 | Blocked on two decision gates in 4.1 |
 | 5 — Reporting | 0 / 7 | |
-| **Total** | **40 / 77** | |
+| **Total** | **46 / 77** | |
 
 **Landed so far:** the baseline dataset and its card, the Hub publishing path with
 preflight checks, the benchmark runner with CER/crib scoring and the `--delimited`
@@ -32,24 +32,21 @@ tokenization switch, and the two Kryptos ciphers with K3's geometry derived rath
 taken on faith, and Vigenère and Hill for the Phase 3 composites. Every solved passage
 round-trips from carved ciphertext to published answer. The scoring module now carries
 everything the tiers need — CER, similarity ratio, index of coincidence, quadgram
-fitness and the tier table. 307 tests.
+fitness and the tier table. Phase 3's plaintext corpus is in: 36,653 clauses of
+public-domain prose, recombined into passages that have never existed. 347 tests.
 
-**Phase 3 is the next real work, and it is gated.** Both questions in 3.1 have to be
-answered before any generator gets written. Note that the quadgram table sourced in 2.2
-sharpens the first of them: fitness rewards *typical* English, so the choice of plaintext
-source directly moves the scores it will produce.
-
-**Open decision gates —** four, all recorded inline in the phase they block:
+**Open decision gates —** two, both in Phase 4:
 
 | Gate | Phase | Blocks |
 |---|---|---|
-| Where isomorph plaintexts come from | 3.1 | all generator work |
-| Seeded snapshot vs. fresh per run | 3.1 | generator API shape |
 | What Tier 4 actually scores | 4.1 | the K4 tier |
 | Sandbox for the tool-use paradigm | 4.1 | the second evaluation paradigm |
 
-A fifth gate — deriving K3's route geometry — was resolved in 1.2: the design document's
-stated width of 86 is an error, and the real route was recovered by exhaustive search.
+Three gates are closed. K3's route geometry (1.2): the design document's stated width of
+86 is an error, and the real route was recovered by exhaustive search. Both 3.1 gates
+(recorded in full in that section): plaintexts come from recombined public-domain prose,
+and generation supports both a seeded snapshot and a fresh seed, with the seed threaded
+through the generator API rather than bolted on.
 
 ---
 
@@ -188,26 +185,34 @@ Target: `src/kryptos/algorithms/isomorph/`
 
 The actual contamination-resistance mechanism.
 
-### 3.1 Decision gates — settle before writing generators
+### 3.1 Decision gates ✅ both resolved
 
-- [ ] 🚩 **Where do plaintexts come from?** The design doc says generate them with a
-      secondary LLM. Subtle problem: LLM prose is close to the most predictable English
-      there is, and both n-gram hill-climbing and a model's own priors do measurably
-      better on typical text than idiosyncratic text — scores could be inflated relative
-      to the cipher's real difficulty. Alternatives: public-domain text published after a
-      stated cutoff, procedurally recombined corpora, or a private held-out set.
-- [ ] 🚩 **Seeded snapshot or fresh per run?** Contamination resistance wants new data
-      every run; comparing two models wants identical data. Usual resolution is both — a
-      seeded published snapshot per release, plus on-demand generation with a fresh seed.
-      Decide now: it determines whether seeding threads through the generator API or gets
-      bolted on later.
+- [x] 🚩 **Where do plaintexts come from?** *Resolved: procedurally recombined
+      public-domain corpora.* Clauses drawn from eight pre-1929 prose works and
+      concatenated, so a passage is novel — no memorised completion once a few characters
+      resolve — while keeping the statistics of real English. The LLM option in the design
+      doc was rejected on the inflation problem stated below; verbatim excerpts on
+      recognisability. **Verified, not assumed:** recombined text scores −4.207 quadgram
+      fitness against −4.201 for genuine contiguous prose at matched lengths, a gap of
+      0.006 against a standard deviation of 0.11
+- [x] 🚩 **Seeded snapshot or fresh per run?** *Resolved: both.* A seeded published
+      snapshot per release for cross-model comparability, plus on-demand generation with
+      a fresh seed for contamination resistance. Seed is a first-class parameter of every
+      generator from the start rather than retrofitted
 
-### 3.2 Plaintext corpus
+### 3.2 Plaintext corpus ✅
 
-- [ ] Implement the sourcing decided above
-- [ ] Normalise: uppercase, strip punctuation and spacing, matching the carved form
-- [ ] Length control so generated instances match Kryptos-like sizes (63–372 characters)
-- [ ] Corpus provenance recorded per instance
+- [x] Implement the sourcing decided above — `isomorph/data/build.py`, same contract as
+      the other builders: deterministic, checksummed, `--check` without network.
+      Gutenberg's licensed boilerplate stripped by requiring its START/END markers
+- [x] Normalise: uppercase, strip punctuation and spacing, matching the carved form.
+      Accented letters are folded first (`Pélagie` → `PELAGIE`), not dropped — dropping
+      welds neighbours into sequences occurring in no English word
+- [x] Length control so generated instances match Kryptos-like sizes (63–372 characters).
+      **Exact**, by trimming the final clause: a route transposition needs a grid width
+      dividing the text, so approximate lengths would choose the geometry for us
+- [x] Corpus provenance recorded per instance — source works, clause count, and whether
+      the tail was trimmed
 
 ### 3.3 Generators
 
