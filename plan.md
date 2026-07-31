@@ -35,24 +35,31 @@ published dataset currently declines to assert.
 
 Target: `src/kryptos/algorithms/ciphers/`
 
-### 1.1 Quagmire III
+### 1.1 Quagmire III ✅
 
-- [ ] `keyed_alphabet(keyword)` — dedupe keyword letters, append unused A–Z in order
-- [ ] `encrypt(plaintext, alphabet_keyword, indicator_keyword)`
-- [ ] `decrypt(ciphertext, alphabet_keyword, indicator_keyword)`
-- [ ] `?` passes through unenciphered **and does not advance the key** (verified in Phase 0:
-      the alternative convention gives 115 inconsistencies in K2 at period 8, this gives 0)
-- [ ] Unit tests on small hand-computed vectors, independent of the Kryptos data
+- [x] `keyed_alphabet(keyword)` — dedupe keyword letters, append unused A–Z in order
+- [x] `encrypt(plaintext, alphabet_keyword, indicator_keyword)`
+- [x] `decrypt(ciphertext, alphabet_keyword, indicator_keyword)`
+- [x] `?` passes through unenciphered **and does not advance the key** (the alternative
+      convention decrypts K2 wrongly at 282 of 369 enciphered positions; this one at none)
+- [x] Unit tests on small hand-computed vectors, independent of the Kryptos data
 
-### 1.2 Route transposition
+### 1.2 Route transposition ✅
 
-- [ ] 🚩 **Derive K3's actual geometry.** The design doc states width-86 → rotate →
+**Gate resolved.** The design document's width-86 → reslice-8 route does not reproduce K3:
+86 divides neither 336 nor a padding of it, and sweeping that shape over every rotation
+matches nothing. An exhaustive search of two-stage routes over widths dividing 336 found
+twelve matches, all inducing one permutation — the width pairs multiplying to 588, both
+stages a quarter turn. `K3_ROUTE = ((7, 1), (84, 1))`; the solver's inverse is
+`((8, 1), (24, 1))`, which is where the document's "segments of 8" belongs.
+
+- [x] 🚩 **Derive K3's actual geometry.** *Resolved — see below.* The design doc states width-86 → rotate →
       reslice to width-8 → rotate → read columns, without derivation. Treat as a
       hypothesis to test, not a spec to implement.
-- [ ] `encrypt(plaintext, width, rotations, reslice_width)`
-- [ ] `decrypt(...)` — exact inverse
-- [ ] Property test: `decrypt(encrypt(x)) == x` over randomised dimensions
-- [ ] Property test: ciphertext is always an exact anagram of plaintext
+- [x] `encrypt(plaintext, width, rotations, reslice_width)`
+- [x] `decrypt(...)` — exact inverse
+- [x] Property test: `decrypt(encrypt(x)) == x` over randomised dimensions
+- [x] Property test: ciphertext is always an exact anagram of plaintext
 
 ### 1.3 Vigenère and Hill
 
@@ -64,15 +71,16 @@ Needed for the Phase 3 K4 proxies, not for the baseline.
 - [ ] Known-plaintext attack: recover the key matrix from enough crib pairs
 - [ ] Unit tests including a deliberately non-invertible matrix
 
-### 1.4 Round-trip validation of the baseline
+### 1.4 Round-trip validation of the baseline ✅
 
 The payoff. Each of these either passes or tells us the published data is wrong.
 
-- [ ] K1: `decrypt(ciphertext, "KRYPTOS", "PALIMPSEST")` == stored `answer`
-- [ ] K2: `decrypt(ciphertext, "KRYPTOS", "ABSCISSA")` == stored `answer`
+- [x] K1: `decrypt(ciphertext, "KRYPTOS", "PALIMPSEST")` == stored `answer`
+- [x] K2: `decrypt(ciphertext, "KRYPTOS", "ABSCISSA")` == stored `answer`
       (ending `...WESTIDBYROWS`, not the widely quoted `X LAYER TWO`)
-- [ ] K3: `decrypt(ciphertext, <derived geometry>)` == stored `answer`
-- [ ] Wire these into `tests/test_baseline.py` alongside the existing indirect checks
+- [x] K3: `decrypt(ciphertext, <derived geometry>)` == stored `answer`
+- [x] Round-trips live in `tests/test_quagmire.py` and `tests/test_transposition.py`,
+      beside each cipher, with the indirect checks still in `tests/test_baseline.py`
 
 ### 1.5 Correct and republish the baseline
 
