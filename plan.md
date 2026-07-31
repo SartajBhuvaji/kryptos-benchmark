@@ -19,17 +19,17 @@ not during.
 | Phase | Done | Notes |
 |---|---|---|
 | 0 — Baseline | 7 / 7 ✅ | Published as `sartajbhuvaji/kryptos-bench`, config `baseline` |
-| 1 — Cipher implementations | 14 / 21 | 1.1, 1.2, 1.4 complete (PR #1, #2). 1.3 and 1.5 remain |
+| 1 — Cipher implementations | 18 / 21 | 1.1–1.4 complete (PR #1, #2, #3). Only 1.5 remains |
 | 2 — Scoring module | 0 / 9 | CER and crib-match currently live inside the runner |
 | 3 — Isomorph generation | 0 / 18 | Blocked on two decision gates in 3.1 |
 | 4 — Tiers and paradigms | 1 / 13 | Blocked on two decision gates in 4.1 |
 | 5 — Reporting | 0 / 7 | |
-| **Total** | **22 / 75** | |
+| **Total** | **26 / 75** | |
 
 **Landed so far:** the baseline dataset and its card, the Hub publishing path with
 preflight checks, the benchmark runner with CER/crib scoring and the `--delimited`
 tokenization switch, and the two Kryptos ciphers with K3's geometry derived rather than
-taken on faith. 171 tests.
+taken on faith, and Vigenère and Hill for the Phase 3 composites. 244 tests.
 
 **Open decision gates —** four, all recorded inline in the phase they block:
 
@@ -60,10 +60,10 @@ stated width of 86 is an error, and the real route was recovered by exhaustive s
 
 ## Phase 1 — Cipher implementations
 
-**Mostly done.** Both Kryptos ciphers are implemented and the baseline's five indirect
-checks have been upgraded to an actual round-trip proof — all three solved passages now
-decrypt exactly. What remains is Vigenère and Hill (needed only by the Phase 3 K4 proxies,
-not by the baseline) and republishing K3's corrected `solution` field.
+**Nearly done.** All four ciphers are implemented, and the baseline's five indirect checks
+have been upgraded to an actual round-trip proof — every solved passage now decrypts
+exactly. Only 1.5 remains: republishing K3's corrected `solution` field, which currently
+tells readers the route geometry "is not asserted here".
 
 Target: `src/kryptos/algorithms/ciphers/`
 
@@ -93,15 +93,15 @@ stages a quarter turn. `K3_ROUTE = ((7, 1), (84, 1))`; the solver's inverse is
 - [x] Property test: `decrypt(encrypt(x)) == x` over randomised dimensions
 - [x] Property test: ciphertext is always an exact anagram of plaintext
 
-### 1.3 Vigenère and Hill
+### 1.3 Vigenère and Hill ✅
 
 Needed for the Phase 3 K4 proxies, not for the baseline.
 
-- [ ] Vigenère encrypt/decrypt over a keyed alphabet
-- [ ] Hill cipher mod 26: matrix multiply, adjugate inverse, invertibility check
+- [x] Vigenère encrypt/decrypt over a keyed alphabet
+- [x] Hill cipher mod 26: matrix multiply, adjugate inverse, invertibility check
       (`gcd(det, 26) == 1`)
-- [ ] Known-plaintext attack: recover the key matrix from enough crib pairs
-- [ ] Unit tests including a deliberately non-invertible matrix
+- [x] Known-plaintext attack: recover the key matrix from enough crib pairs
+- [x] Unit tests including a deliberately non-invertible matrix
 
 ### 1.4 Round-trip validation of the baseline ✅
 
