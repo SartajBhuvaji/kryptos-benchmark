@@ -14,6 +14,37 @@ not during.
 
 ---
 
+## Status
+
+| Phase | Done | Notes |
+|---|---|---|
+| 0 — Baseline | 7 / 7 ✅ | Published as `sartajbhuvaji/kryptos-bench`, config `baseline` |
+| 1 — Cipher implementations | 14 / 21 | 1.1, 1.2, 1.4 complete (PR #1, #2). 1.3 and 1.5 remain |
+| 2 — Scoring module | 0 / 9 | CER and crib-match currently live inside the runner |
+| 3 — Isomorph generation | 0 / 18 | Blocked on two decision gates in 3.1 |
+| 4 — Tiers and paradigms | 1 / 13 | Blocked on two decision gates in 4.1 |
+| 5 — Reporting | 0 / 7 | |
+| **Total** | **22 / 75** | |
+
+**Landed so far:** the baseline dataset and its card, the Hub publishing path with
+preflight checks, the benchmark runner with CER/crib scoring and the `--delimited`
+tokenization switch, and the two Kryptos ciphers with K3's geometry derived rather than
+taken on faith. 171 tests.
+
+**Open decision gates —** four, all recorded inline in the phase they block:
+
+| Gate | Phase | Blocks |
+|---|---|---|
+| Where isomorph plaintexts come from | 3.1 | all generator work |
+| Seeded snapshot vs. fresh per run | 3.1 | generator API shape |
+| What Tier 4 actually scores | 4.1 | the K4 tier |
+| Sandbox for the tool-use paradigm | 4.1 | the second evaluation paradigm |
+
+A fifth gate — deriving K3's route geometry — was resolved in 1.2: the design document's
+stated width of 86 is an error, and the real route was recovered by exhaustive search.
+
+---
+
 ## Phase 0 — Baseline ✅ complete
 
 - [x] Transcribe K1–K4 exactly as carved, verified five ways (length checksums, length
@@ -23,15 +54,16 @@ not during.
 - [x] Dataset card following the standard benchmark template
 - [x] Publish to the Hub with preflight checks — `sartajbhuvaji/kryptos-bench`, config `baseline`
 - [x] Benchmark runner: loads dataset, calls a model, scores, prints — `src/kryptos/eval/`
-- [x] Test suite (56 tests) including the no-ground-truth-leak property
+- [x] Test suite including the no-ground-truth-leak property
 
 ---
 
 ## Phase 1 — Cipher implementations
 
-**Do this first.** It unblocks isomorph generation, upgrades the baseline's five indirect
-checks to an actual round-trip proof, and settles K3's route geometry — which the
-published dataset currently declines to assert.
+**Mostly done.** Both Kryptos ciphers are implemented and the baseline's five indirect
+checks have been upgraded to an actual round-trip proof — all three solved passages now
+decrypt exactly. What remains is Vigenère and Hill (needed only by the Phase 3 K4 proxies,
+not by the baseline) and republishing K3's corrected `solution` field.
 
 Target: `src/kryptos/algorithms/ciphers/`
 
@@ -214,7 +246,7 @@ The design document's four tiers are *task framings* over the datasets above, no
 ### 4.4 Runner extensions
 
 - [ ] `--tier`, `--paradigm`, `--config` flags
-- [ ] Presentation stays a render-time axis — `--delimited` already exists
+- [x] Presentation stays a render-time axis — `--delimited` shipped with the runner
 - [ ] Per-instance results persisted, not just printed
 
 ---
