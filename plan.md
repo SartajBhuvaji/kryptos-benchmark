@@ -20,17 +20,24 @@ not during.
 |---|---|---|
 | 0 — Baseline | 7 / 7 ✅ | Published as `sartajbhuvaji/kryptos-bench`, config `baseline` |
 | 1 — Cipher implementations | 22 / 22 ✅ | PR #1–#4. K3's route now published as data |
-| 2 — Scoring module | 3 / 10 | 2.1 complete (PR #5). 2.2 next — needs the quadgram table |
+| 2 — Scoring module | 10 / 10 ✅ | PR #5, #6. Thresholds are asserted, not yet calibrated |
 | 3 — Isomorph generation | 0 / 18 | Blocked on two decision gates in 3.1 |
 | 4 — Tiers and paradigms | 1 / 13 | Blocked on two decision gates in 4.1 |
 | 5 — Reporting | 0 / 7 | |
-| **Total** | **33 / 77** | |
+| **Total** | **40 / 77** | |
 
 **Landed so far:** the baseline dataset and its card, the Hub publishing path with
 preflight checks, the benchmark runner with CER/crib scoring and the `--delimited`
 tokenization switch, and the two Kryptos ciphers with K3's geometry derived rather than
 taken on faith, and Vigenère and Hill for the Phase 3 composites. Every solved passage
-round-trips from carved ciphertext to published answer. 249 tests.
+round-trips from carved ciphertext to published answer. The scoring module now carries
+everything the tiers need — CER, similarity ratio, index of coincidence, quadgram
+fitness and the tier table. 307 tests.
+
+**Phase 3 is the next real work, and it is gated.** Both questions in 3.1 have to be
+answered before any generator gets written. Note that the quadgram table sourced in 2.2
+sharpens the first of them: fitness rewards *typical* English, so the choice of plaintext
+source directly moves the scores it will produce.
 
 **Open decision gates —** four, all recorded inline in the phase they block:
 
@@ -146,25 +153,32 @@ Target: `src/kryptos/scoring/`
       imports the module; `dataset/example.py` is standalone, ships with the data, and
       is pinned to the module value-for-value plus held to the no-leak property
 
-### 2.2 Add what the tiers need
+### 2.2 Add what the tiers need ✅
 
-- [ ] Normalized Levenshtein ratio (0–100) so scores compare across passages of very
-      different length — 97 characters vs 869
-- [ ] Index of coincidence — the tier-3 discriminator between substitution and
+- [x] Normalized Levenshtein ratio (0–100) so scores compare across passages of very
+      different length — 97 characters vs 869. `similarity_ratio`, symmetric and bounded,
+      unlike CER which divides by the reference and is unclamped
+- [x] Index of coincidence — the tier-3 discriminator between substitution and
       transposition, and a useful report diagnostic
-- [ ] N-gram fitness (quadgram log-probability) to judge whether a partial break is real
-      or noise
-- [ ] Source and commit an English quadgram frequency table — **decided:** the Practical
-      Cryptography table, so scores stay comparable with the published cryptanalysis
-      literature that uses it. Record its provenance; its redistribution terms are not
-      stated, and n-gram counts are facts rather than expression
-- [ ] Tier thresholds as data, not scattered constants: T1 = 0%, T2 < 5%, T3 < 10%
+- [x] N-gram fitness (quadgram log-probability) to judge whether a partial break is real
+      or noise. Reported as a per-quadgram mean, since a raw sum ranks long passages worst
+      regardless of content
+- [x] Source and commit an English quadgram frequency table — the Practical Cryptography
+      table, so scores stay comparable with the published cryptanalysis literature that
+      uses it. 389,373 quadgrams, committed whole; truncating would push more onto the
+      floor and shift scores off that baseline. Checksummed, with provenance and the
+      licensing position recorded in `scoring/data/PROVENANCE.md`
+- [x] Tier thresholds as data, not scattered constants: T1 = 0%, T2 < 5%, T3 < 10%.
+      Tier 4 holds `None` rather than a placeholder, so gate 4.1 stays visible
 
-### 2.3 Verify
+### 2.3 Verify ✅
 
-- [ ] IoC ≈ 0.066 on the K3 plaintext and K3 ciphertext (transposition preserves it);
-      measurably lower on K1/K2 ciphertext
-- [ ] N-gram fitness ranks real plaintext above shuffled text of the same letters
+- [x] IoC ≈ 0.066 on the K3 plaintext and K3 ciphertext (transposition preserves it);
+      measurably lower on K1/K2 ciphertext. Measured: K3 **0.0662 on both, equal to the
+      bit**; K1 0.0379 and K2 0.0455 against an English norm of 0.0667
+- [x] N-gram fitness ranks real plaintext above shuffled text of the same letters —
+      by roughly two log units, on identical letter multisets, which isolates what the
+      n-gram model adds over the IoC
 
 ---
 

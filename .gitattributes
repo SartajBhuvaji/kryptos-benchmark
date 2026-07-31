@@ -1,1 +1,6 @@
 * text=auto eol=lf
+
+# Checksummed binary artifacts. `text=auto` would normally detect these, but detection is
+# a heuristic over the first few KB and this repository is worked on from a Windows mount
+# -- a single CRLF rewrite would break the SHA-256 the scoring module pins.
+*.gz binary
