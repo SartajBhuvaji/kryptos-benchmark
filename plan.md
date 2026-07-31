@@ -21,10 +21,10 @@ not during.
 | 0 — Baseline | 7 / 7 ✅ | Published as `sartajbhuvaji/kryptos-bench`, config `baseline` |
 | 1 — Cipher implementations | 22 / 22 ✅ | PR #1–#4. K3's route now published as data |
 | 2 — Scoring module | 10 / 10 ✅ | PR #5, #6. Thresholds are asserted, not yet calibrated |
-| 3 — Isomorph generation | 6 / 18 | PR #7. Gates resolved; 3.3 generators next |
+| 3 — Isomorph generation | 15 / 18 | PR #7, #8. Only 3.5, publishing, remains |
 | 4 — Tiers and paradigms | 1 / 13 | Blocked on two decision gates in 4.1 |
 | 5 — Reporting | 0 / 7 | |
-| **Total** | **46 / 77** | |
+| **Total** | **55 / 77** | |
 
 **Landed so far:** the baseline dataset and its card, the Hub publishing path with
 preflight checks, the benchmark runner with CER/crib scoring and the `--delimited`
@@ -33,7 +33,9 @@ taken on faith, and Vigenère and Hill for the Phase 3 composites. Every solved 
 round-trips from carved ciphertext to published answer. The scoring module now carries
 everything the tiers need — CER, similarity ratio, index of coincidence, quadgram
 fitness and the tier table. Phase 3's plaintext corpus is in: 36,653 clauses of
-public-domain prose, recombined into passages that have never existed. 347 tests.
+public-domain prose, recombined into passages that have never existed, and the four
+generators that turn them into cipher instances — every one round-tripping through the
+Phase 1 ciphers on its own published parameters. 418 tests.
 
 **Open decision gates —** two, both in Phase 4:
 
@@ -214,22 +216,35 @@ The actual contamination-resistance mechanism.
 - [x] Corpus provenance recorded per instance — source works, clause count, and whether
       the tail was trimmed
 
-### 3.3 Generators
+### 3.3 Generators ✅
 
-- [ ] Quagmire III isomorphs — random alphabet keyword, random indicator keyword, period
-      derived from the indicator
-- [ ] Transposition isomorphs — randomised grid width, rotation sequence, reslice width
-- [ ] Composite K4 proxies — Vigenère→Hill, and Quagmire with `W` null separators
-- [ ] Every instance ships its full parameter set as ground truth, so `solution` is
+- [x] Quagmire III isomorphs — random alphabet keyword, random indicator keyword, period
+      derived from the indicator. Published period is the **true** period, not the keyword
+      length: a repeating indicator is a shorter cipher wearing a longer key
+- [x] Transposition isomorphs — randomised grid width, rotation sequence, reslice width.
+      Length is chosen from the geometry, not the other way round, since a width must
+      divide the text; the solution states the two-stage inverse when one exists
+- [x] Composite K4 proxies — Vigenère→Hill, and Quagmire with `W` null separators. Nulls
+      are discarded **by position, not by letter** — `W` occurs naturally in English, so
+      "delete every W" would delete real letters and leave the instance unsolvable
+- [x] Every instance ships its full parameter set as ground truth, so `solution` is
       machine-generated rather than hand-written
-- [ ] Deterministic given a seed
+- [x] Deterministic given a seed — and the stream is salted per kind with SHA-256, or one
+      snapshot ships every config keyed alike, with plaintexts shared between them
 
-### 3.4 Verify
+Keywords are drawn from the corpus vocabulary rather than made of random letters, matching
+how Kryptos keys on real words. Degenerate draws are screened and redrawn using the hooks
+Phase 1 left for exactly this — `degenerate_columns`, `is_identity`, `is_invertible`.
 
-- [ ] Every generated instance round-trips through the Phase 1 ciphers
-- [ ] Same seed produces byte-identical output
-- [ ] Different seeds produce disjoint keys and plaintexts
-- [ ] Generated Quagmire instances pass the same periodic-consistency check the baseline does
+### 3.4 Verify ✅
+
+- [x] Every generated instance round-trips through the Phase 1 ciphers — driven only by
+      the parameters the instance publishes, not by anything retained from generation
+- [x] Same seed produces byte-identical output
+- [x] Different seeds produce disjoint keys and plaintexts
+- [x] Generated Quagmire instances pass the same periodic-consistency check the baseline
+      does — imported from the baseline's test module rather than reimplemented, so the
+      claim is literally true rather than approximately
 
 ### 3.5 Publish
 
