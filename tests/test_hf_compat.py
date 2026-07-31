@@ -85,6 +85,44 @@ def test_preflight_passes_on_the_committed_dataset():
     assert any("loads as 4 rows" in c for c in checks)
 
 
+def test_publishable_files_are_the_card_the_data_and_the_example():
+    from kryptos.huggingface import push
+
+    assert push.publishable_files() == ["README.md", "baseline/test.jsonl", "example.py"]
+
+
+def test_build_residue_is_never_published(tmp_path, monkeypatch):
+    """`upload_folder` walks the filesystem, not the git index, so a __pycache__ that
+    git happily ignores would otherwise be uploaded -- and importing example.py in the
+    test suite is enough to create one."""
+    from kryptos.huggingface import push
+
+    staged = tmp_path / "dataset"
+    (staged / "baseline").mkdir(parents=True)
+    (staged / "README.md").write_text("card", encoding="utf-8")
+    (staged / "baseline" / "test.jsonl").write_text("{}\n", encoding="utf-8")
+    (staged / "__pycache__").mkdir()
+    (staged / "__pycache__" / "example.cpython-313.pyc").write_bytes(b"\x00")
+    (staged / ".DS_Store").write_bytes(b"\x00")
+
+    monkeypatch.setattr(push, "DATASET_DIR", staged)
+    assert push.publishable_files() == ["README.md", "baseline/test.jsonl"]
+
+
+def test_preflight_rejects_an_unrecognised_file(tmp_path, monkeypatch):
+    """The folder is uploaded wholesale, so an unreviewed file heading for a public URL
+    should stop the push rather than ride along with it."""
+    from kryptos.huggingface import push
+
+    staged = tmp_path / "dataset"
+    staged.mkdir()
+    (staged / "notes.txt").write_text("private working notes", encoding="utf-8")
+
+    monkeypatch.setattr(push, "DATASET_DIR", staged)
+    with pytest.raises(push.PreflightError, match="unexpected file"):
+        push.preflight()
+
+
 def test_preflight_rejects_a_stale_artifact(tmp_path, monkeypatch):
     """Guards the check above against passing vacuously."""
     from kryptos.huggingface import push

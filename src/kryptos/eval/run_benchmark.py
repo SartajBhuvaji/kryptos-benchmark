@@ -1,15 +1,18 @@
 """Run the Kryptos benchmark against a Claude model and print the results.
 
-Self-contained on purpose: it imports nothing from this repository, so the file can be
-dropped into the dataset's HuggingFace repo as a usage example without modification.
+This is the project's harness, and it grows with the project -- tiers, evaluation
+paradigms and persisted results all land here. It scores through :mod:`kryptos.scoring`
+so that the tier thresholds, the isomorph verification and the Phase 5 reports all
+measure with the same code.
 
-    pip install anthropic datasets rapidfuzz
-    export ANTHROPIC_API_KEY=...        # or: ant auth login
+A deliberately minimal standalone version ships with the dataset itself, at
+``src/kryptos/dataset/example.py``. That one imports nothing from this repository and is
+meant to stay small; this one is not.
 
-    python run_benchmark.py                     # all four passages
-    python run_benchmark.py --passages K1 K3    # a subset
-    python run_benchmark.py --delimited         # space-separate ciphertext characters
-    python run_benchmark.py --effort max        # deeper reasoning, more tokens
+    python -m kryptos.eval.run_benchmark                     # all four passages
+    python -m kryptos.eval.run_benchmark --passages K1 K3    # a subset
+    python -m kryptos.eval.run_benchmark --delimited         # space-separate characters
+    python -m kryptos.eval.run_benchmark --effort max        # deeper reasoning
 
 Only the dataset's input fields are ever sent to the model. The ground-truth columns
 (`solution`, `answer`, `answer_readable`, cipher keys) stay on this side of the wall --
@@ -22,8 +25,14 @@ from __future__ import annotations
 import argparse
 import json
 import os
+import pathlib
 import sys
 from dataclasses import dataclass
+
+if __package__ in (None, ""):  # allow running the file directly
+    sys.path.insert(0, str(pathlib.Path(__file__).resolve().parents[2]))
+
+from kryptos.scoring import character_error_rate, crib_score, letters_only
 
 DATASET = "sartajbhuvaji/kryptos-bench"
 CONFIG = "baseline"
@@ -73,60 +82,6 @@ ANSWER_SCHEMA = {
     "required": ["cipher", "key", "method", "plaintext"],
     "additionalProperties": False,
 }
-
-
-# --- scoring ---------------------------------------------------------------------
-
-
-def letters_only(text: str) -> str:
-    return "".join(ch for ch in text.upper() if "A" <= ch <= "Z")
-
-
-def levenshtein(a: str, b: str) -> int:
-    try:
-        from rapidfuzz.distance import Levenshtein
-    except ImportError:
-        pass
-    else:
-        return Levenshtein.distance(a, b)
-
-    # Pure-Python fallback so the script runs without rapidfuzz. Two rows only --
-    # K2 is 372x372, which is trivial, but there is no reason to hold the full matrix.
-    if not a:
-        return len(b)
-    previous = list(range(len(b) + 1))
-    for i, ca in enumerate(a, start=1):
-        current = [i]
-        for j, cb in enumerate(b, start=1):
-            current.append(
-                min(previous[j] + 1, current[j - 1] + 1, previous[j - 1] + (ca != cb))
-            )
-        previous = current
-    return previous[-1]
-
-
-def character_error_rate(reference: str, hypothesis: str) -> float:
-    """Levenshtein distance normalised by reference length. 0.0 is a perfect break.
-
-    Not clamped to 1.0: a hypothesis longer than the reference can exceed it, and that
-    is worth seeing rather than hiding.
-    """
-    if not reference:
-        return 0.0 if not hypothesis else 1.0
-    return levenshtein(reference, hypothesis) / len(reference)
-
-
-def crib_score(cribs: list[dict], hypothesis: str) -> tuple[int, int]:
-    """Return (cribs placed at their exact position, cribs present anywhere).
-
-    K4's only ground truth is 24 characters at known offsets, so this is what can
-    honestly be measured. Positions are 1-indexed and inclusive.
-    """
-    exact = sum(
-        1 for c in cribs if hypothesis[c["start"] - 1 : c["end"]] == c["plaintext"]
-    )
-    anywhere = sum(1 for c in cribs if c["plaintext"] in hypothesis)
-    return exact, anywhere
 
 
 # --- model call ------------------------------------------------------------------

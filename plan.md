@@ -20,11 +20,11 @@ not during.
 |---|---|---|
 | 0 — Baseline | 7 / 7 ✅ | Published as `sartajbhuvaji/kryptos-bench`, config `baseline` |
 | 1 — Cipher implementations | 22 / 22 ✅ | PR #1–#4. K3's route now published as data |
-| 2 — Scoring module | 0 / 9 | **Next.** CER and crib-match currently live inside the runner |
+| 2 — Scoring module | 3 / 10 | 2.1 complete (PR #5). 2.2 next — needs the quadgram table |
 | 3 — Isomorph generation | 0 / 18 | Blocked on two decision gates in 3.1 |
 | 4 — Tiers and paradigms | 1 / 13 | Blocked on two decision gates in 4.1 |
 | 5 — Reporting | 0 / 7 | |
-| **Total** | **30 / 76** | |
+| **Total** | **33 / 77** | |
 
 **Landed so far:** the baseline dataset and its card, the Hub publishing path with
 preflight checks, the benchmark runner with CER/crib scoring and the `--delimited`
@@ -134,11 +134,17 @@ The payoff. Each of these either passes or tells us the published data is wrong.
 
 Target: `src/kryptos/scoring/`
 
-### 2.1 Extract what exists
+### 2.1 Extract what exists ✅
 
-- [ ] Move `character_error_rate`, `levenshtein`, `crib_score`, `letters_only` out of
-      `run_benchmark.py` into the module (move, don't rewrite — they're tested)
-- [ ] Point the runner at the new module; tests must stay green
+- [x] Move `character_error_rate`, `levenshtein`, `crib_score`, `letters_only` out of
+      `run_benchmark.py` into the module (move, don't rewrite — they're tested).
+      Split by what is measured: `text`, `distance`, `cribs`
+- [x] Point the runner at the new module; tests must stay green
+- [x] Separate the runner's two roles, which this collided with. It claimed to import
+      nothing from the repo so it could ship as a usage example, but nothing ever
+      shipped — and Phases 4–5 make it too big for that job anyway. The harness now
+      imports the module; `dataset/example.py` is standalone, ships with the data, and
+      is pinned to the module value-for-value plus held to the no-leak property
 
 ### 2.2 Add what the tiers need
 
@@ -148,7 +154,10 @@ Target: `src/kryptos/scoring/`
       transposition, and a useful report diagnostic
 - [ ] N-gram fitness (quadgram log-probability) to judge whether a partial break is real
       or noise
-- [ ] Source and commit an English quadgram frequency table
+- [ ] Source and commit an English quadgram frequency table — **decided:** the Practical
+      Cryptography table, so scores stay comparable with the published cryptanalysis
+      literature that uses it. Record its provenance; its redistribution terms are not
+      stated, and n-gram counts are facts rather than expression
 - [ ] Tier thresholds as data, not scattered constants: T1 = 0%, T2 < 5%, T3 < 10%
 
 ### 2.3 Verify
