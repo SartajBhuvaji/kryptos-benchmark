@@ -48,3 +48,27 @@ def character_error_rate(reference: str, hypothesis: str) -> float:
     if not reference:
         return 0.0 if not hypothesis else 1.0
     return levenshtein(reference, hypothesis) / len(reference)
+
+
+def similarity_ratio(a: str, b: str) -> float:
+    """Levenshtein similarity on a 0-100 scale. 100 is identical.
+
+    CER divides by the *reference* length, which is right for grading an attempt against
+    a known answer but makes scores from passages of very different length awkward to
+    put side by side -- K1 is 63 characters and K3 is 869, and an unbounded CER has no
+    common ceiling to compare against. This divides by the longer of the two strings, so
+    the result is symmetric, always within 0-100, and comparable across passages.
+
+    Two empty strings are identical, so 100.
+
+    >>> similarity_ratio("ABCDE", "ABCDE")
+    100.0
+    >>> similarity_ratio("ABCDE", "ABXDE")
+    80.0
+    >>> similarity_ratio("", "")
+    100.0
+    """
+    longest = max(len(a), len(b))
+    if not longest:
+        return 100.0
+    return (1 - levenshtein(a, b) / longest) * 100

@@ -18,7 +18,15 @@ import pytest
 
 from kryptos.algorithms.baseline import build
 from kryptos.algorithms.baseline.schema import GROUND_TRUTH_FIELDS, INPUT_FIELDS
-from kryptos.scoring import character_error_rate, crib_score, letters_only, levenshtein
+from kryptos.scoring import (
+    TIERS,
+    character_error_rate,
+    crib_score,
+    letters_only,
+    levenshtein,
+    similarity_ratio,
+    tier,
+)
 
 
 @pytest.fixture(scope="module")
@@ -74,6 +82,27 @@ def test_perfect_decryption_scores_zero(rows):
             assert character_error_rate(row["answer"], row["answer"]) == 0.0
 
 
+def test_similarity_ratio_bounds():
+    assert similarity_ratio("ABCDE", "ABCDE") == 100.0
+    assert similarity_ratio("ABCDE", "ABXDE") == pytest.approx(80.0)
+    assert similarity_ratio("ABCDE", "") == 0.0
+    assert similarity_ratio("", "") == 100.0
+
+
+def test_similarity_ratio_is_symmetric():
+    """Unlike CER, which divides by the reference and so depends on argument order."""
+    a, b = "BETWEENSUBTLE", "BETWENSUBTL"
+    assert similarity_ratio(a, b) == similarity_ratio(b, a)
+    assert character_error_rate(a, b) != character_error_rate(b, a)
+
+
+def test_similarity_ratio_stays_in_range_where_cer_does_not():
+    """The reason it exists: a common 0-100 ceiling, so passages of 63 and 869
+    characters can be put side by side."""
+    assert character_error_rate("AB", "ABCDEFGH") > 1.0
+    assert 0.0 <= similarity_ratio("AB", "ABCDEFGH") <= 100.0
+
+
 # --- normalisation ----------------------------------------------------------------
 
 
@@ -108,6 +137,45 @@ def test_crib_score_separates_placed_from_merely_present(rows):
     k4 = next(r for r in rows if r["passage"] == "K4")
     displaced = "BERLIN" + "?" * 91
     assert crib_score(k4["cribs"], displaced) == (0, 1)
+
+
+# --- tier thresholds --------------------------------------------------------------
+
+
+def test_the_four_tiers_are_defined_with_the_documented_thresholds():
+    assert [t.number for t in TIERS] == [1, 2, 3, 4]
+    assert [t.threshold for t in TIERS] == [0.0, 0.05, 0.10, None]
+
+
+def test_tier_4_asserts_no_numeric_threshold():
+    """K4 has no reference plaintext, so the design document's "Normalized Levenshtein
+    > 30%" cannot be computed. A placeholder number here would bury plan gate 4.1."""
+    assert tier(4).threshold is None
+    assert tier(4).passed(0.0) is None
+
+
+def test_no_threshold_is_claimed_as_calibrated():
+    """They come from the design document, not from observed score distributions. A
+    report printing them should be able to say so."""
+    assert not any(t.calibrated for t in TIERS)
+
+
+def test_thresholds_are_a_maximum_because_cer_is_an_error_rate():
+    assert tier(1).passed(0.0) is True
+    assert tier(1).passed(0.01) is False
+    assert tier(2).passed(0.049) is True
+    assert tier(2).passed(0.051) is False
+
+
+def test_tiers_get_stricter_as_they_get_harder_is_not_assumed():
+    """Tier 3 is deliberately looser than tier 2 -- a route error displaces every
+    following character, so a nearly-right geometry still scores badly under CER."""
+    assert tier(3).threshold > tier(2).threshold > tier(1).threshold
+
+
+def test_unknown_tier_gives_a_useful_error():
+    with pytest.raises(ValueError, match="no tier 7"):
+        tier(7)
 
 
 # --- the shipped example --------------------------------------------------------
