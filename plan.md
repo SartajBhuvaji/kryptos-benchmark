@@ -19,17 +19,18 @@ not during.
 | Phase | Done | Notes |
 |---|---|---|
 | 0 — Baseline | 7 / 7 ✅ | Published as `sartajbhuvaji/kryptos-bench`, config `baseline` |
-| 1 — Cipher implementations | 18 / 21 | 1.1–1.4 complete (PR #1, #2, #3). Only 1.5 remains |
-| 2 — Scoring module | 0 / 9 | CER and crib-match currently live inside the runner |
+| 1 — Cipher implementations | 22 / 22 ✅ | PR #1–#4. K3's route now published as data |
+| 2 — Scoring module | 0 / 9 | **Next.** CER and crib-match currently live inside the runner |
 | 3 — Isomorph generation | 0 / 18 | Blocked on two decision gates in 3.1 |
 | 4 — Tiers and paradigms | 1 / 13 | Blocked on two decision gates in 4.1 |
 | 5 — Reporting | 0 / 7 | |
-| **Total** | **26 / 75** | |
+| **Total** | **30 / 76** | |
 
 **Landed so far:** the baseline dataset and its card, the Hub publishing path with
 preflight checks, the benchmark runner with CER/crib scoring and the `--delimited`
 tokenization switch, and the two Kryptos ciphers with K3's geometry derived rather than
-taken on faith, and Vigenère and Hill for the Phase 3 composites. 244 tests.
+taken on faith, and Vigenère and Hill for the Phase 3 composites. Every solved passage
+round-trips from carved ciphertext to published answer. 249 tests.
 
 **Open decision gates —** four, all recorded inline in the phase they block:
 
@@ -58,12 +59,11 @@ stated width of 86 is an error, and the real route was recovered by exhaustive s
 
 ---
 
-## Phase 1 — Cipher implementations
+## Phase 1 — Cipher implementations ✅ complete
 
-**Nearly done.** All four ciphers are implemented, and the baseline's five indirect checks
-have been upgraded to an actual round-trip proof — every solved passage now decrypts
-exactly. Only 1.5 remains: republishing K3's corrected `solution` field, which currently
-tells readers the route geometry "is not asserted here".
+All four ciphers are implemented, the baseline's five indirect checks have been upgraded
+to an actual round-trip proof — every solved passage decrypts exactly — and the published
+dataset now states K3's route instead of declining to assert it.
 
 Target: `src/kryptos/algorithms/ciphers/`
 
@@ -114,12 +114,19 @@ The payoff. Each of these either passes or tells us the published data is wrong.
 - [x] Round-trips live in `tests/test_quagmire.py` and `tests/test_transposition.py`,
       beside each cipher, with the indirect checks still in `tests/test_baseline.py`
 
-### 1.5 Correct and republish the baseline
+### 1.5 Correct and republish the baseline ✅
 
-- [ ] Replace K3's `solution` text, which currently says the geometry "is not asserted
-      here", with the verified route
-- [ ] Rebuild the artifact, re-run preflight, push to the Hub
-- [ ] Note the correction in the dataset card
+- [x] Replace K3's `solution` text, which currently says the geometry "is not asserted
+      here", with the verified route — and render it from `K3_ROUTE` /
+      `K3_SOLVER_ROUTE` rather than restating them, since hand-restating is what let it
+      go stale
+- [x] Add a machine-readable `route` field, so the transposition's key is data like the
+      Quagmire keywords are, not prose. `"width:quarter_turns"` per stage, encryption
+      direction; a string because a list-of-struct column populated in one of four rows
+      is the shape Arrow loads least predictably. Phase 3's isomorphs need this field
+- [x] Rebuild the artifact, re-run preflight, push to the Hub (PR #4)
+- [x] Note the correction in the dataset card — including its stale claim that the text
+      "is not validated by round-tripping through a solver", which 1.4 made false
 
 ---
 
@@ -267,10 +274,11 @@ The design document's four tiers are *task framings* over the datasets above, no
 
 ## Risks
 
-- **K3's route geometry may not be as documented.** The width-86 → rotate → width-8 →
-  rotate chain is asserted without derivation, which is why Phase 0 stopped short of
-  publishing it. If it does not round-trip in 1.4, the real geometry must be derived
-  before the K3 isomorph generator can be written.
+- ~~**K3's route geometry may not be as documented.**~~ *Realised, then closed.* The
+  documented width-86 chain reproduced nothing; the real route was derived by exhaustive
+  search in 1.2 and published in 1.5. The residual caveat is narrower: uniqueness holds
+  only relative to the family of routes searched, since one plaintext/ciphertext pair
+  cannot single out a permutation on its own.
 - **Composite K4 proxies test something we cannot name.** Nobody knows K4's method, so a
   Vigenère→Hill composite is a guess about difficulty, not a model of the real problem.
   Worth building as a multi-layer capability probe; the framing must not imply otherwise.

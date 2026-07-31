@@ -21,7 +21,16 @@ if __package__ in (None, ""):  # allow running the file directly
     sys.path.insert(0, str(pathlib.Path(__file__).resolve().parents[3]))
 
 from kryptos.algorithms.baseline import source as src
-from kryptos.algorithms.baseline.schema import CANARY, CONFIG, FIELDS, SPLIT, anomaly, crib
+from kryptos.algorithms.baseline.schema import (
+    CANARY,
+    CONFIG,
+    FIELDS,
+    SPLIT,
+    anomaly,
+    crib,
+    format_route,
+)
+from kryptos.algorithms.ciphers import transposition as rt
 
 #: Repository root, four levels up from src/kryptos/algorithms/baseline/.
 ROOT = pathlib.Path(__file__).resolve().parents[4]
@@ -45,16 +54,40 @@ TRANSPOSITION_SOLUTION = (
     "Route transposition. The letters are permuted rather than substituted, so letter "
     "frequencies and the index of coincidence are unchanged from ordinary English and the "
     "ciphertext is an exact anagram of the plaintext -- which is what rules out frequency "
-    "analysis and identifies the cipher family. Recovery means inverting a multi-stage "
-    "geometric route: the text is written into a rectangular grid, rotated, resliced to a "
-    "different width, rotated again, and read off by columns. The exact grid dimensions "
-    "and rotation sequence are not asserted here; they are pinned down alongside the "
-    "cipher implementations. A literal '?' is copied through."
+    "analysis and identifies the cipher family. Recovery is a two-stage geometric route. "
+    "First drop the trailing '?', which is copied through unenciphered and takes no part "
+    "in the permutation, leaving {length} letters. Write those row-major into a grid "
+    "{solver_first} columns wide, rotate the grid a quarter turn clockwise, and read it "
+    "back row-major; then do the same again with a grid {solver_second} columns wide. "
+    "Re-append the '?'. Enciphering runs the same kind of route with widths {enc_first} "
+    "then {enc_second}, which is what the 'route' field records. The geometry was "
+    "recovered by exhaustive search rather than taken from a published description: of "
+    "all two-stage routes whose widths divide {length}, twelve carry this plaintext to "
+    "this ciphertext, and all twelve induce the same permutation."
 )
 
 
 def letters_only(text: str) -> str:
     return "".join(ch for ch in text if ch.isalpha())
+
+
+def k3_solution() -> str:
+    """Render K3's solution from the route constants, so the prose cannot drift from them."""
+    (enc_first, _), (enc_second, _) = rt.K3_ROUTE
+    (solver_first, _), (solver_second, _) = rt.K3_SOLVER_ROUTE
+    # The prose says "a quarter turn clockwise" for every stage. Assert rather than
+    # generate the phrasing: if a future route needs other rotations, this should fail
+    # loudly instead of quietly describing the wrong motion.
+    assert all(turns % 4 == 1 for _, turns in (*rt.K3_ROUTE, *rt.K3_SOLVER_ROUTE)), (
+        "K3 route rotations are no longer all quarter turns; the solution prose is stale"
+    )
+    return TRANSPOSITION_SOLUTION.format(
+        length=len(letters_only(src.K3_CIPHERTEXT)),
+        solver_first=solver_first,
+        solver_second=solver_second,
+        enc_first=enc_first,
+        enc_second=enc_second,
+    )
 
 
 def normalize(readable: str) -> str:
@@ -73,6 +106,7 @@ def _record(
     alphabet_keyword: str | None = None,
     indicator_keyword: str | None = None,
     period: int | None = None,
+    route: str | None = None,
     cribs: list | None = None,
     anomalies: list | None = None,
 ) -> dict:
@@ -99,6 +133,7 @@ def _record(
         "keyed_alphabet": src.KEYED_ALPHABET if alphabet_keyword else None,
         "indicator_keyword": indicator_keyword,
         "period": period,
+        "route": route,
         "anomalies": anomalies or [],
         # --- scoring ---
         # K4 has 24 known plaintext characters and no reference string, so full-text
@@ -191,7 +226,8 @@ def build() -> list[dict]:
             src.K3_PLAINTEXT,
             "transposition",
             "Route transposition",
-            TRANSPOSITION_SOLUTION,
+            k3_solution(),
+            route=format_route(rt.K3_ROUTE),
             anomalies=[
                 anomaly(
                     "deliberate_misspelling",

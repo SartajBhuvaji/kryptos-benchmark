@@ -48,8 +48,19 @@ GROUND_TRUTH_FIELDS: tuple[str, ...] = (
     "keyed_alphabet",
     "indicator_keyword",
     "period",
+    "route",
     "anomalies",
 )
+
+#: Separators for the ``route`` field. A route is a sequence of grid stages, and a
+#: transposition's key is its geometry the way a Quagmire's key is its keywords -- so it
+#: belongs in a field rather than only in the ``solution`` prose. It is encoded as a
+#: string, ``"7:1,84:1"``, rather than a list of structs: Arrow infers one schema across
+#: the whole table, and a list-of-struct column populated in exactly one of four rows is
+#: the shape that loads least predictably. :func:`format_route` and :func:`parse_route`
+#: are the only places that know the encoding.
+STAGE_SEPARATOR = ","
+STAGE_FIELD_SEPARATOR = ":"
 
 #: How a submission is scored.
 SCORING_FIELDS: tuple[str, ...] = ("scoring_metric", "scoring_reference", "scoring_threshold")
@@ -133,6 +144,7 @@ def hf_features() -> Any:
             "keyed_alphabet": Value("string"),
             "indicator_keyword": Value("string"),
             "period": Value("int32"),
+            "route": Value("string"),
             "anomalies": [
                 {
                     "kind": Value("string"),
@@ -149,6 +161,33 @@ def hf_features() -> Any:
             "sha256_problem": Value("string"),
         }
     )
+
+
+def format_route(route: tuple[tuple[int, int], ...]) -> str:
+    """Encode a transposition route for the ``route`` field.
+
+    Stages are ``width:quarter_turns``, in the encryption direction -- the same order
+    :func:`kryptos.algorithms.ciphers.transposition.encrypt` applies them.
+
+    >>> format_route(((7, 1), (84, 1)))
+    '7:1,84:1'
+    """
+    return STAGE_SEPARATOR.join(
+        f"{width}{STAGE_FIELD_SEPARATOR}{turns}" for width, turns in route
+    )
+
+
+def parse_route(encoded: str) -> tuple[tuple[int, int], ...]:
+    """Inverse of :func:`format_route`, so a consumer need not know the encoding.
+
+    >>> parse_route("7:1,84:1")
+    ((7, 1), (84, 1))
+    """
+    stages = []
+    for stage in encoded.split(STAGE_SEPARATOR):
+        width, _, turns = stage.partition(STAGE_FIELD_SEPARATOR)
+        stages.append((int(width), int(turns)))
+    return tuple(stages)
 
 
 def crib(plaintext: str, ciphertext: str, start: int, end: int) -> dict[str, Any]:
