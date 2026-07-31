@@ -246,3 +246,60 @@ def test_malformed_stage_is_rejected():
 def test_negative_quarter_turns_rejected():
     with pytest.raises(ValueError, match="quarter_turns"):
         rt.permutation(12, ((4, -1),))
+
+
+# --- findings from adversarial probing --------------------------------------------
+
+
+@pytest.mark.parametrize("stage", [(True, 1), (1, True), (False, 1)])
+def test_bool_is_not_accepted_as_an_integer(stage):
+    """bool subclasses int, so True would silently mean width 1 rather than error."""
+    with pytest.raises(ValueError):
+        rt.permutation(6, (stage,))
+
+
+def test_quarter_turns_are_taken_modulo_four():
+    assert rt.encrypt("ABCDEF", ((2, 1001),)) == rt.encrypt("ABCDEF", ((2, 1),))
+
+
+@pytest.mark.parametrize("length", [0, 1, 7])
+def test_degenerate_lengths(length):
+    text = "ABCDEFG"[:length]
+    route = ((max(length, 1), 1),)
+    assert rt.decrypt(rt.encrypt(text, route), route) == text
+
+
+def test_every_entry_point_validates():
+    """A non-dividing width must be rejected regardless of which function is called."""
+    for call in (
+        lambda: rt.encrypt("ABCDEFG", ((3, 1),)),
+        lambda: rt.decrypt("ABCDEFG", ((3, 1),)),
+        lambda: rt.is_identity(7, ((3, 1),)),
+    ):
+        with pytest.raises(ValueError, match="does not divide"):
+            call()
+
+
+def test_the_data_alone_cannot_pin_a_permutation(k3):
+    """Guards the docstring against overclaiming. K3's plaintext has repeated letters,
+    so astronomically many permutations carry it to the ciphertext -- uniqueness is
+    relative to the family searched, never established by the pair itself."""
+    import math
+    from collections import Counter
+
+    counts = Counter(k3["plaintext"])
+    consistent = math.prod(math.factorial(n) for n in counts.values())
+    assert consistent > 10**300
+    assert max(counts.values()) > 1
+
+
+def test_padded_width_86_still_matches_nothing(k3):
+    """Being generous to the design document: pad 336 to 344 so 86 tiles it, then sweep
+    every second stage and rotation. Still nothing."""
+    padded = k3["plaintext"] + "X" * ((-336) % 86)
+    assert len(padded) == 344
+    for r1 in range(4):
+        for w2 in (d for d in range(1, 345) if 344 % d == 0):
+            for r2 in range(4):
+                out = rt.encrypt(padded, ((86, r1), (w2, r2)))
+                assert out[:336] != k3["ciphertext"]

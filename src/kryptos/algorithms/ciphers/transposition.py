@@ -18,16 +18,26 @@ exhaustive sweep of that shape over every rotation combination matches nothing.
 The route was instead recovered by searching all two-stage routes whose widths divide 336
 (12,800 candidates) for one carrying K3's plaintext to its ciphertext. Twelve parameter
 sets match, and applying each to 336 distinct symbols shows all twelve induce **the same
-permutation** — the geometry is uniquely determined, and the twelve are just different
-descriptions of it. They are exactly the pairs whose widths multiply to 588:
+permutation** — they are different descriptions of one transformation, not twelve ciphers.
+They are exactly the pairs whose widths multiply to 588:
 
     (7, 84)  (14, 42)  (21, 28)  (28, 21)  (42, 14)  (84, 7)
 
 each with both stages rotated 90 degrees, or both 270. :data:`K3_ROUTE` picks the first.
 
+How strong is that? Not "uniquely determined by the data": K3's plaintext has repeated
+letters, so roughly 10^306 distinct permutations carry it to the ciphertext, and no amount
+of staring at one plaintext/ciphertext pair can single one out. The uniqueness is
+*relative to the family searched* — two- and three-stage grid-rotation routes over widths
+dividing 336. Extending the sweep to three stages found no route inducing a different
+permutation, so within that family the answer is stable. A route outside it that happens
+to agree on this one pair cannot be ruled out, and would be indistinguishable here.
+
 Inverting it gives the route a solver would run on the ciphertext — width 8 then width 24,
 both a quarter turn — which is where the design document's "segments of 8" belongs. Its
-stated width of 86 appears to be an error.
+stated width of 86 appears to be an error: 86 divides neither 336 nor any padding of it
+that preserves the text, and padding to 344 (86 x 4) and sweeping every second stage and
+rotation still matches nothing.
 
 The trailing ``?``
 ------------------
@@ -121,9 +131,10 @@ def _validate(length: int, route: tuple[Stage, ...]) -> None:
             raise ValueError(
                 f"stage {index} must be a (width, quarter_turns) pair, got {stage!r}"
             ) from None
-        if not isinstance(width, int) or width < 1:
+        # bool is a subclass of int, so True would silently mean width 1.
+        if isinstance(width, bool) or not isinstance(width, int) or width < 1:
             raise ValueError(f"stage {index}: width must be a positive integer, got {width!r}")
-        if not isinstance(quarter_turns, int) or quarter_turns < 0:
+        if isinstance(quarter_turns, bool) or not isinstance(quarter_turns, int) or quarter_turns < 0:
             raise ValueError(
                 f"stage {index}: quarter_turns must be a non-negative integer, "
                 f"got {quarter_turns!r}"
