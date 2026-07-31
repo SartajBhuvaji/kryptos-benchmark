@@ -19,15 +19,21 @@ import random
 import pytest
 
 from kryptos.algorithms.baseline import build
+from kryptos.algorithms.baseline import schema
 from kryptos.algorithms.ciphers import transposition as rt
 
 DIVISORS_OF_336 = [d for d in range(1, 337) if 336 % d == 0]
 
 
 @pytest.fixture(scope="module")
-def k3() -> dict[str, str]:
+def k3_row() -> dict:
     with pathlib.Path(build.OUTPUT).open(encoding="utf-8") as fh:
-        row = {r["passage"]: r for r in map(json.loads, fh)}["K3"]
+        return {r["passage"]: r for r in map(json.loads, fh)}["K3"]
+
+
+@pytest.fixture(scope="module")
+def k3(k3_row) -> dict[str, str]:
+    row = k3_row
     ciphertext = row["problem"]
     plaintext = row["answer_readable"].replace(" ", "")
     assert ciphertext.endswith("?") and plaintext.endswith("?")
@@ -217,6 +223,64 @@ def test_search_finds_exactly_the_twelve(k3):
         (7, 84), (14, 42), (21, 28), (28, 21), (42, 14), (84, 7)
     }
     assert all(w1 * w2 == 588 for w1, _, w2, _ in matches)
+
+
+# --- what the published record says about the route ---------------------------------
+#
+# The dataset's job is to state K3's geometry, so these tests check the *record*, not the
+# cipher: that the machine-readable `route` field and the human-readable `solution` prose
+# both describe the transformation the cipher module implements. A model under evaluation
+# never sees either, but a reader reproducing the benchmark does.
+
+
+def test_published_route_field_decrypts_k3(k3_row, k3):
+    """The `route` field is ground truth, so it must be usable as one — not decoration."""
+    route = schema.parse_route(k3_row["route"])
+    assert route == rt.K3_ROUTE
+    assert rt.decrypt(k3["ciphertext"], route) == k3["plaintext"]
+
+
+def test_route_encoding_round_trips():
+    assert schema.parse_route(schema.format_route(rt.K3_ROUTE)) == rt.K3_ROUTE
+
+
+def test_only_k3_carries_a_route(k3_row):
+    """Substitution passages have keywords instead; K4 has nothing asserted."""
+    with pathlib.Path(build.OUTPUT).open(encoding="utf-8") as fh:
+        rows = {r["passage"]: r for r in map(json.loads, fh)}
+    assert rows["K3"]["route"] is not None
+    assert [rows[p]["route"] for p in ("K1", "K2", "K4")] == [None, None, None]
+
+
+def test_solution_prose_names_the_actual_widths(k3_row):
+    """Guards against the prose and the constants drifting apart — the failure mode that
+    made this correction necessary in the first place."""
+    solution = k3_row["solution"]
+    for width, _ in (*rt.K3_ROUTE, *rt.K3_SOLVER_ROUTE):
+        assert str(width) in solution
+    assert "not asserted here" not in solution
+
+
+def test_solution_prose_is_executable_as_written(k3_row):
+    """The strongest form of this check: follow the prose with a fresh implementation that
+    borrows nothing from the cipher module, and land on the published answer.
+
+    The prose says: drop the trailing '?', write row-major into a grid N columns wide,
+    rotate a quarter turn clockwise, read back row-major, repeat at the second width,
+    re-append the '?'.
+    """
+
+    def stage(text: str, width: int) -> str:
+        rows = [list(text[i : i + width]) for i in range(0, len(text), width)]
+        clockwise = [list(column) for column in zip(*rows[::-1])]
+        return "".join(ch for row in clockwise for ch in row)
+
+    (first, _), (second, _) = rt.K3_SOLVER_ROUTE
+    ciphertext = k3_row["problem"]
+    assert ciphertext.endswith("?")
+
+    recovered = stage(stage(ciphertext[:-1], first), second) + "?"
+    assert recovered == k3_row["answer_readable"].replace(" ", "")
 
 
 # --- input validation -------------------------------------------------------------
