@@ -183,3 +183,34 @@ def load() -> Corpus:
 def plaintext(length: int, rng: random.Random) -> Plaintext:
     """Draw one passage of ``length`` letters from the committed corpus."""
     return load().sample(length, rng)
+
+
+#: Bounds on a generated cipher keyword. The floor keeps the period long enough to be
+#: worth finding; the ceiling keeps it short enough that a period is findable at all in a
+#: passage of a few hundred characters. Kryptos's own indicators, PALIMPSEST and ABSCISSA,
+#: are 10 and 8.
+MIN_KEYWORD_LETTERS = 6
+MAX_KEYWORD_LETTERS = 12
+
+
+@functools.lru_cache(maxsize=8)
+def vocabulary(
+    min_letters: int = MIN_KEYWORD_LETTERS, max_letters: int = MAX_KEYWORD_LETTERS
+) -> tuple[str, ...]:
+    """Distinct words from the corpus, uppercased, as a source of cipher keywords.
+
+    Kryptos keys on real words -- ``KRYPTOS``, ``PALIMPSEST``, ``ABSCISSA`` -- and an
+    isomorph should too. A random letter string would be a different problem: it removes
+    the possibility of recognising the key as a word, which is part of what a solver does
+    with a recovered keyed alphabet.
+
+    Sorted, so the sequence a seeded generator draws from does not depend on set
+    iteration order.
+    """
+    words: set[str] = set()
+    for clause in load().clauses:
+        for token in clause.text.split():
+            word = normalize(token)
+            if min_letters <= len(word) <= max_letters:
+                words.add(word)
+    return tuple(sorted(words))
