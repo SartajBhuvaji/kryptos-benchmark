@@ -12,7 +12,15 @@ composite cipher should not have to know it is a Quagmire underneath, or remembe
 ``"A"`` is the keyword that yields an unkeyed alphabet.
 
 Passing ``alphabet_keyword`` recovers the general keyed case, which is what the Phase 3
-K4-proxy composites use.
+K4-proxy composites use. It is keyword-only on purpose: this module's second positional
+argument is the *key* while :mod:`quagmire`'s is the *alphabet keyword*, so a positional
+call written against the wrong module would silently produce a different cipher rather
+than an error — and a mislabelled ground-truth row in the dataset.
+
+Composing with :mod:`~kryptos.algorithms.ciphers.hill`: this cipher carries ``?`` through
+and preserves length, while Hill admits no passthrough and needs a length that is a
+multiple of its block size. A caller chaining the two strips and pads between the stages;
+neither module does it silently.
 """
 
 from __future__ import annotations
@@ -26,7 +34,7 @@ UNKEYED = "A"
 PASSTHROUGH = quagmire.PASSTHROUGH
 
 
-def encrypt(plaintext: str, key: str, alphabet_keyword: str = UNKEYED) -> str:
+def encrypt(plaintext: str, key: str, *, alphabet_keyword: str = UNKEYED) -> str:
     """Encipher ``plaintext`` with a repeating ``key``.
 
     >>> encrypt("ATTACKATDAWN", "LEMON")
@@ -35,7 +43,7 @@ def encrypt(plaintext: str, key: str, alphabet_keyword: str = UNKEYED) -> str:
     return quagmire.encrypt(plaintext, alphabet_keyword, key)
 
 
-def decrypt(ciphertext: str, key: str, alphabet_keyword: str = UNKEYED) -> str:
+def decrypt(ciphertext: str, key: str, *, alphabet_keyword: str = UNKEYED) -> str:
     """Decipher ``ciphertext``. Inverse of :func:`encrypt` for uppercase input.
 
     >>> decrypt("LXFOPVEFRNHR", "LEMON")
@@ -44,7 +52,7 @@ def decrypt(ciphertext: str, key: str, alphabet_keyword: str = UNKEYED) -> str:
     return quagmire.decrypt(ciphertext, alphabet_keyword, key)
 
 
-def period(key: str, alphabet_keyword: str = UNKEYED) -> int:
+def period(key: str, *, alphabet_keyword: str = UNKEYED) -> int:
     """Length of the shortest repeating cycle in the shift schedule.
 
     Not the key's length: ``ABAB`` repeats every two positions. See

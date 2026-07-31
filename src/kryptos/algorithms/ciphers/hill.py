@@ -39,7 +39,6 @@ from __future__ import annotations
 
 import math
 import string
-from itertools import combinations
 
 ALPHABET = string.ascii_uppercase
 MODULUS = 26
@@ -99,7 +98,8 @@ def inverse(matrix: Matrix) -> Matrix:
 
 def multiply(a: Matrix, b: Matrix) -> Matrix:
     """Matrix product mod 26."""
-    left, right = _validate_matrix(a), _validate_matrix(b)
+    left = _validate_matrix(a, square=False)
+    right = _validate_matrix(b, square=False)
     if len(left[0]) != len(right):
         raise ValueError(f"shape mismatch: {len(left)}x{len(left[0])} times {len(right)}x{len(right[0])}")
     return tuple(
@@ -162,18 +162,73 @@ def recover_key(plaintext: str, ciphertext: str, block_size: int) -> Matrix:
     p_blocks = [_block(plain, i, block_size) for i in range(count)]
     c_blocks = [_block(cipher, i, block_size) for i in range(count)]
 
-    for chosen in combinations(range(count), block_size):
-        # Columns are blocks, so P and C are block_size x block_size.
-        p_matrix = tuple(tuple(p_blocks[j][r] for j in chosen) for r in range(block_size))
-        if not is_invertible(p_matrix):
-            continue
-        c_matrix = tuple(tuple(c_blocks[j][r] for j in chosen) for r in range(block_size))
-        return multiply(c_matrix, inverse(p_matrix))
+    chosen = _select_independent(p_blocks, block_size)
+    if chosen is None:
+        raise ValueError(
+            f"no {block_size} of the {count} known blocks are independent mod {MODULUS}; "
+            f"more known plaintext is needed (independence must hold mod 2 and mod 13, "
+            f"so roughly {block_size + 8} blocks are usually needed for size {block_size})"
+        )
 
-    raise ValueError(
-        f"no {block_size} of the {count} known blocks form an invertible matrix mod "
-        f"{MODULUS}; more known plaintext is needed"
-    )
+    # Columns are blocks, so P and C are block_size x block_size.
+    p_matrix = tuple(tuple(p_blocks[j][r] for j in chosen) for r in range(block_size))
+    c_matrix = tuple(tuple(c_blocks[j][r] for j in chosen) for r in range(block_size))
+    key = multiply(c_matrix, inverse(p_matrix))
+
+    # Solving from block_size blocks is exact only if the pair is actually consistent.
+    # Crib-based attacks guess at alignment, so an inconsistent pair is the normal
+    # failure mode -- returning an unverified key would answer a wrong guess silently.
+    if _apply(plain, key) != cipher:
+        raise ValueError(
+            "recovered key does not reproduce the ciphertext; the plaintext and "
+            "ciphertext are inconsistent with any single Hill key of this block size "
+            "(for a crib attack, the alignment is probably wrong)"
+        )
+    return key
+
+
+def _select_independent(blocks: list[list[int]], count: int) -> tuple[int, ...] | None:
+    """Greedily pick ``count`` block indices whose matrix is invertible mod 26.
+
+    A matrix is invertible mod 26 exactly when it is invertible mod 2 and mod 13, since
+    26 = 2 x 13 and the Chinese remainder theorem splits the ring. So this maintains a
+    row-echelon basis over each prime field and accepts a block only when it raises the
+    rank in both -- O(blocks x count^2) in one pass.
+
+    The earlier implementation scanned every combination, which is C(blocks, count):
+    with a 4x4 key and 60 known blocks that is 487,635 selections and about 30 seconds.
+
+    Greedy is not guaranteed to find a valid set whenever one exists -- picking a basis
+    good for both fields at once is matroid intersection, not a greedy problem -- so a
+    None result means "not found", not "provably absent". In practice the shortfall is
+    the same one more known plaintext fixes.
+    """
+    basis_2: list[tuple[int, list[int]]] = []
+    basis_13: list[tuple[int, list[int]]] = []
+    chosen: list[int] = []
+
+    for index, block in enumerate(blocks):
+        trial_2, trial_13 = list(basis_2), list(basis_13)
+        if _extends(trial_2, block, 2) and _extends(trial_13, block, 13):
+            basis_2, basis_13 = trial_2, trial_13
+            chosen.append(index)
+            if len(chosen) == count:
+                return tuple(chosen)
+    return None
+
+
+def _extends(basis: list[tuple[int, list[int]]], vector: list[int], prime: int) -> bool:
+    """Reduce ``vector`` against ``basis`` over GF(prime); append it if independent."""
+    reduced = [value % prime for value in vector]
+    for pivot, row in basis:
+        if reduced[pivot]:
+            factor = reduced[pivot] * pow(row[pivot], -1, prime) % prime
+            reduced = [(a - factor * b) % prime for a, b in zip(reduced, row)]
+    for position, value in enumerate(reduced):
+        if value:
+            basis.append((position, reduced))
+            return True
+    return False
 
 
 # --- internals --------------------------------------------------------------------
@@ -233,7 +288,7 @@ def _adjugate(rows: tuple[tuple[int, ...], ...]) -> tuple[tuple[int, ...], ...]:
     return tuple(tuple(cofactors[i][j] for i in range(n)) for j in range(n))
 
 
-def _validate_matrix(matrix: Matrix) -> tuple[tuple[int, ...], ...]:
+def _validate_matrix(matrix: Matrix, *, square: bool = True) -> tuple[tuple[int, ...], ...]:
     if not isinstance(matrix, (tuple, list)) or not matrix:
         raise ValueError(f"matrix must be a non-empty sequence of rows, got {matrix!r}")
     rows = tuple(tuple(row) for row in matrix)
@@ -242,6 +297,11 @@ def _validate_matrix(matrix: Matrix) -> tuple[tuple[int, ...], ...]:
         raise ValueError("matrix rows must all be the same length")
     if not width:
         raise ValueError("matrix rows must not be empty")
+    if square and len(rows) != width:
+        # Without this, a wide matrix is silently truncated by the zip in _apply: it
+        # round-trips cleanly while the extra columns are discarded, so a generator
+        # would label its output with a key that was never applied.
+        raise ValueError(f"matrix must be square, got {len(rows)}x{width}")
     for row in rows:
         for value in row:
             if isinstance(value, bool) or not isinstance(value, int):

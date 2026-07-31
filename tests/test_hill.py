@@ -124,8 +124,12 @@ def test_encryption_preserves_length():
     rng = random.Random(3)
     matrix = _random_invertible(rng, 2)
     for length in (2, 4, 20, 100):
-        text = "A" * length
-        assert len(hill.encrypt(text, matrix)) == length
+        # Deliberately not "A" * length: the all-A block is the zero vector and a fixed
+        # point of every key, so that text would pass with the arithmetic broken.
+        text = "".join(rng.choices(string.ascii_uppercase, k=length))
+        encrypted = hill.encrypt(text, matrix)
+        assert len(encrypted) == length
+        assert encrypted != text
 
 
 def test_identity_matrix_is_the_identity_cipher():
@@ -156,12 +160,12 @@ def test_recover_key_from_the_textbook_pair():
 def test_recover_key_over_random_keys():
     rng = random.Random(99)
     for _ in range(60):
-        size = rng.choice([2, 3])
+        size = rng.choice([2, 3, 4])
         matrix = _random_invertible(rng, size)
         # Enough blocks that some selection is invertible. A random 3x3 over Z/26 is
         # invertible only ~37% of the time (it must invert mod 2 AND mod 13), so a bare
         # `size` blocks is often not enough — the attack needs slack, not just parity.
-        plain = "".join(rng.choices(string.ascii_uppercase, k=size * (size + 8)))
+        plain = "".join(rng.choices(string.ascii_uppercase, k=size * (size + 20)))
         cipher = hill.encrypt(plain, matrix)
         assert hill.recover_key(plain, cipher, size) == matrix
 
@@ -180,11 +184,11 @@ def test_recover_key_needs_enough_blocks():
         hill.recover_key("HE", "HI", 2)
 
 
-def test_recover_key_reports_when_no_blocks_are_invertible():
+def test_recover_key_reports_when_no_blocks_are_independent():
     matrix = TEXTBOOK_KEY
-    plain = "AAAAAA"  # every block identical -> no invertible selection
+    plain = "AAAAAA"  # every block identical -> no independent selection
     cipher = hill.encrypt(plain, matrix)
-    with pytest.raises(ValueError, match="invertible"):
+    with pytest.raises(ValueError, match="independent"):
         hill.recover_key(plain, cipher, 2)
 
 
@@ -236,3 +240,72 @@ def test_bool_block_size_rejected():
 def test_multiply_shape_mismatch():
     with pytest.raises(ValueError, match="shape mismatch"):
         hill.multiply(((1, 2), (3, 4)), ((1, 2, 3),))
+
+
+# --- findings from adversarial review ---------------------------------------------
+
+
+@pytest.mark.parametrize("matrix", [((3, 3, 9), (2, 5, 7)), ((1, 2, 3),), ((3, 3), (2, 5), (9, 9))])
+def test_non_square_matrices_are_rejected(matrix):
+    """A wide matrix was silently truncated by the zip in _apply: it round-tripped
+    cleanly while the extra columns were discarded, so a generator would have labelled
+    its output with a key that was never applied."""
+    with pytest.raises(ValueError, match="square"):
+        hill.determinant(matrix)
+    with pytest.raises(ValueError, match="square"):
+        hill.encrypt("HELP", matrix)
+
+
+def test_multiply_still_accepts_rectangular_operands():
+    """The square rule belongs to the cipher, not to matrix multiplication."""
+    assert hill.multiply(((1, 2, 3), (4, 5, 6)), ((1, 0), (0, 1), (1, 1))) == ((4, 5), (10, 11))
+
+
+def test_recover_key_rejects_an_inconsistent_pair():
+    """Crib attacks guess at alignment, so inconsistency is the normal failure mode.
+    Returning an unverified key would answer a wrong guess silently."""
+    plain = "HELPMEOBIWANKENO"
+    cipher = list(hill.encrypt(plain, TEXTBOOK_KEY))
+    cipher[0] = "W" if cipher[0] != "W" else "Q"
+    with pytest.raises(ValueError, match="does not reproduce"):
+        hill.recover_key(plain, "".join(cipher), 2)
+
+
+def test_recovered_key_always_reproduces_the_ciphertext():
+    rng = random.Random(5150)
+    for _ in range(40):
+        size = rng.choice([2, 3])
+        matrix = _random_invertible(rng, size)
+        plain = "".join(rng.choices(string.ascii_uppercase, k=size * (size + 20)))
+        cipher = hill.encrypt(plain, matrix)
+        assert hill.encrypt(plain, hill.recover_key(plain, cipher, size)) == cipher
+
+
+def test_recover_key_is_not_combinatorial():
+    """The old implementation scanned C(blocks, size): a 4x4 key with 60 known blocks
+    is 487,635 selections and about 30 seconds. Greedy rank selection is linear."""
+    import time
+
+    plain = "A" * (4 * 200)  # worst case: every block dependent, so no early exit
+    start = time.monotonic()
+    with pytest.raises(ValueError, match="independent"):
+        hill.recover_key(plain, plain, 4)
+    assert time.monotonic() - start < 2.0
+
+
+def test_recover_key_works_at_size_four():
+    rng = random.Random(444)
+    matrix = _random_invertible(rng, 4)
+    plain = "".join(rng.choices(string.ascii_uppercase, k=4 * 24))
+    assert hill.recover_key(plain, hill.encrypt(plain, matrix), 4) == matrix
+
+
+@pytest.mark.parametrize("seed", range(12))
+def test_recover_key_is_not_seed_dependent(seed):
+    """The earlier construction passed only on its committed seed -- 7 of 60 seeds
+    would have failed. Enough blocks must be supplied that success is not luck."""
+    rng = random.Random(seed)
+    size = rng.choice([2, 3])
+    matrix = _random_invertible(rng, size)
+    plain = "".join(rng.choices(string.ascii_uppercase, k=size * (size + 20)))
+    assert hill.recover_key(plain, hill.encrypt(plain, matrix), size) == matrix
