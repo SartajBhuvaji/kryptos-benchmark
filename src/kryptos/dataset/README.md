@@ -85,6 +85,18 @@ row["answer_readable"]  # BETWEEN SUBTLE SHADING AND THE ABSENCE...
 One config, `baseline`, with a single `test` split of 4 records. It is named `test`
 deliberately: this is evaluation data.
 
+`example.py` in this repository is a complete worked evaluation — load the data, prompt a
+model with the input fields only, score with CER or cribs, print a table. It is a single
+self-contained file with no dependency on the benchmark's own package:
+
+```bash
+pip install anthropic datasets rapidfuzz
+python example.py --passages K1 K3
+```
+
+It is not a loading script and `load_dataset` never executes it; the config above
+resolves through the declared `data_files` path.
+
 ## Data fields
 
 Problem and ground truth are separated by field naming, following MATH-500's

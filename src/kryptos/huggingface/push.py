@@ -7,6 +7,7 @@ Every push runs preflight checks first. Uploading a stale artifact or a card who
 declared config paths do not resolve produces a dataset that fails to load for everyone
 who tries it, and the Hub caches aggressively, so it is worth refusing early:
 
+* nothing unexpected is sitting in the folder waiting to be published
 * the committed JSONL still matches what the builder produces
 * the card carries YAML frontmatter declaring the config and split
 * every path the card points at exists
@@ -22,6 +23,7 @@ Usage::
 from __future__ import annotations
 
 import argparse
+import fnmatch
 import pathlib
 import re
 import sys
@@ -37,6 +39,20 @@ DEFAULT_REPO_ID = "sartajbhuvaji/kryptos-bench"
 DATASET_DIR = build.DATASET_DIR
 CARD = DATASET_DIR / "README.md"
 
+#: Never uploaded. The folder is published wholesale, so anything sitting in it ships --
+#: including build residue git never sees, because ``upload_folder`` walks the filesystem
+#: rather than the index. ``example.py`` is imported by the test suite, which is enough to
+#: drop a ``__pycache__`` directory here.
+IGNORE_DIRS = {"__pycache__", ".ipynb_checkpoints"}
+IGNORE_FILES = ("*.py[cod]", ".DS_Store", "Thumbs.db")
+
+#: The same exclusions in the glob form ``upload_folder`` expects.
+IGNORE_PATTERNS = [f"{d}/*" for d in sorted(IGNORE_DIRS)] + list(IGNORE_FILES)
+
+#: What a dataset repository may contain: the card, config data, and the worked example.
+#: Anything else is unreviewed content heading for a public URL, so preflight stops.
+PUBLISHABLE_SUFFIXES = {".md", ".jsonl", ".py"}
+
 
 class PreflightError(RuntimeError):
     """Raised when the dataset directory is not fit to publish."""
@@ -50,12 +66,42 @@ def _frontmatter(card_text: str) -> str:
     return match.group(1)
 
 
+def publishable_files() -> list[str]:
+    """Relative paths that would actually be uploaded, ignore patterns applied.
+
+    Mirrors what ``upload_folder`` will do, so the dry run cannot claim one file set and
+    the real push send another.
+    """
+    kept = []
+    for path in DATASET_DIR.rglob("*"):
+        if not path.is_file():
+            continue
+        relative = path.relative_to(DATASET_DIR)
+        if set(relative.parts[:-1]) & IGNORE_DIRS:
+            continue
+        if any(fnmatch.fnmatch(relative.name, pattern) for pattern in IGNORE_FILES):
+            continue
+        kept.append(relative.as_posix())
+    return sorted(kept)
+
+
 def preflight() -> list[str]:
     """Verify the dataset directory is publishable. Returns a list of check descriptions."""
     checks: list[str] = []
 
     if not DATASET_DIR.is_dir():
         raise PreflightError(f"missing dataset directory {DATASET_DIR}")
+
+    unexpected = [
+        f for f in publishable_files() if pathlib.Path(f).suffix not in PUBLISHABLE_SUFFIXES
+    ]
+    if unexpected:
+        raise PreflightError(
+            "unexpected file(s) in the dataset directory, which is uploaded wholesale:\n  "
+            + "\n  ".join(unexpected)
+            + "\nRemove them, or add them to IGNORE_PATTERNS if they are build residue."
+        )
+    checks.append(f"{len(publishable_files())} file(s) to upload, all recognised types")
 
     if not build.OUTPUT.exists():
         raise PreflightError(f"missing artifact {build.OUTPUT}; run the builder first")
@@ -119,12 +165,9 @@ def push(repo_id: str, *, private: bool, dry_run: bool) -> str:
     who = api.whoami()
     url = f"https://huggingface.co/datasets/{repo_id}"
 
+    files = publishable_files()
+
     if dry_run:
-        files = sorted(
-            p.relative_to(DATASET_DIR).as_posix()
-            for p in DATASET_DIR.rglob("*")
-            if p.is_file()
-        )
         print(f"\nDRY RUN -- nothing uploaded. Authenticated as {who['name']}.")
         print(f"Would create {'private' if private else 'PUBLIC'} dataset {repo_id}")
         print(f"Would upload {len(files)} file(s) from {DATASET_DIR}:")
@@ -137,6 +180,7 @@ def push(repo_id: str, *, private: bool, dry_run: bool) -> str:
         repo_id=repo_id,
         repo_type="dataset",
         folder_path=str(DATASET_DIR),
+        ignore_patterns=IGNORE_PATTERNS,
         commit_message="Update Kryptos baseline config",
     )
     return url
