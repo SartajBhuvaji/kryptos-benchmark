@@ -16,6 +16,10 @@ dist/
 .cache/
 *.arrow
 
+# Benchmark run output. Ignored by default because every local run appends here and
+# transcripts are large; a run worth keeping gets committed deliberately with `git add -f`.
+runs/
+
 # Editors and OS
 .vscode/
 .idea/

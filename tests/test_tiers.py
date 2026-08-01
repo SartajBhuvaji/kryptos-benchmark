@@ -67,6 +67,14 @@ def test_the_answer_never_appears_in_the_delimited_form(rows, number):
                 assert " ".join(value) not in prompt
 
 
+def test_input_fields_match_the_dataset_schema():
+    """If the schema grows an input field, the tier allowlist must be updated with it --
+    otherwise the new column is silently withheld from every tier."""
+    from kryptos.algorithms.baseline.schema import INPUT_FIELDS as SCHEMA_INPUTS
+
+    assert tiers.INPUT_FIELDS == SCHEMA_INPUTS
+
+
 def test_forbidden_and_visible_fields_are_disjoint():
     """A field cannot be both showable and forbidden."""
     for number, allowed in tiers.VISIBLE_FIELDS.items():
