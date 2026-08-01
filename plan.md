@@ -22,9 +22,9 @@ not during.
 | 1 — Cipher implementations | 22 / 22 ✅ | PR #1–#4. K3's route now published as data |
 | 2 — Scoring module | 10 / 10 ✅ | PR #5, #6. Thresholds are asserted, not yet calibrated |
 | 3 — Isomorph generation | 18 / 18 ✅ | PR #7–#9. 200 instances live on the Hub |
-| 4 — Tiers and paradigms | 1 / 13 | **Next.** Blocked on two decision gates in 4.1 |
+| 4 — Tiers and paradigms | 8 / 13 | PR #10. Gates resolved; 4.3 tool-use next |
 | 5 — Reporting | 0 / 7 | |
-| **Total** | **58 / 77** | |
+| **Total** | **65 / 77** | |
 
 **Landed so far:** the baseline dataset and its card, the Hub publishing path with
 preflight checks, the benchmark runner with CER/crib scoring and the `--delimited`
@@ -36,24 +36,18 @@ fitness and the tier table. Phase 3's plaintext corpus is in: 36,653 clauses of
 public-domain prose, recombined into passages that have never existed, the four generators
 that turn them into cipher instances, and 200 published instances across four sibling
 configs — every one round-tripping through the Phase 1 ciphers on its own published
-parameters. 476 tests.
+parameters, and the four tier framings that pose them. 520 tests.
 
 **The measurement the project exists for is now runnable end to end:** baseline score
 versus isomorph score, per model. What Phase 4 adds is the framing — tiers, prompts, and
 the second evaluation paradigm — not the data.
 
-**Open decision gates —** two, both in Phase 4:
-
-| Gate | Phase | Blocks |
-|---|---|---|
-| What Tier 4 actually scores | 4.1 | the K4 tier |
-| Sandbox for the tool-use paradigm | 4.1 | the second evaluation paradigm |
-
-Three gates are closed. K3's route geometry (1.2): the design document's stated width of
-86 is an error, and the real route was recovered by exhaustive search. Both 3.1 gates
-(recorded in full in that section): plaintexts come from recombined public-domain prose,
-and generation supports both a seeded snapshot and a fresh seed, with the seed threaded
-through the generator API rather than bolted on.
+**No open decision gates.** All five are closed, each recorded in full in the section it
+blocked: K3's route geometry (1.2) — the document's stated width of 86 is an error and the
+real route was recovered by exhaustive search; plaintext sourcing and seeding (3.1) —
+recombined public-domain prose, with both a seeded snapshot and a fresh-seed path sharing
+one code path; Tier 4 scoring and the tool-use sandbox (4.1) — cribs plus fitness with no
+pass mark, and server-side code execution first.
 
 ---
 
@@ -283,25 +277,38 @@ The design document's four tiers are *task framings* over the datasets above, no
 | 3 Geometric transposition | synthetic transposition | spatial reasoning, anagramming, n-gram optimisation | CER < 10% |
 | 4 K4 frontier | authentic K4 + cribs | hypothesis generation, matrix algebra | see gate below |
 
-### 4.1 Decision gates
+### 4.1 Decision gates ✅ both resolved
 
-- [ ] 🚩 **What does Tier 4 score?** The doc says "Normalized Levenshtein > 30%", but K4
-      has no known plaintext — there is no reference string to measure against, so the
-      metric cannot be computed as written. Options: crib characters only; a hypothesis
-      rubric (is the mechanism internally consistent, does it reproduce the cribs, does
-      the code run); or report Tier 4 qualitatively with no numeric threshold.
-- [ ] 🚩 **Sandbox for tool-use.** Running model-written Python needs isolation. Anthropic's
-      server-side code execution tool, or a local container? Affects cost, portability,
-      and third-party reproducibility.
+- [x] 🚩 **What does Tier 4 score?** *Resolved: crib placement **and** quadgram fitness,
+      reported together, no pass mark.* Neither works alone — placement is satisfiable by
+      construction (drop the four cribs into noise, score 4/4, having done nothing), and
+      fitness alone says nothing about the fragments. Both failure modes are tested. No
+      threshold, because there is no distribution of successful K4 attempts to calibrate
+      one against and an invented number would licence unsupported claims
+- [x] 🚩 **Sandbox for tool-use.** *Resolved: Anthropic's server-side code execution tool
+      first, with a local container backend behind the same interface when a non-Claude
+      model needs evaluating.* Server-side means no Docker prerequisite, an isolated
+      no-egress container, and negligible cost at this scale. Recorded limitation: it is
+      Claude-API-only, so the tool-use paradigm does not reach other providers until the
+      second backend exists
 
-### 4.2 Tier prompts
+### 4.2 Tier prompts ✅
 
-- [ ] Tier 1 — cipher name and keys supplied; tests execution, not discovery
-- [ ] Tier 2 — ciphertext only
-- [ ] Tier 3 — ciphertext only, transposition family
-- [ ] Tier 4 — K4 plus cribs, per the gate above
-- [ ] Few-shot format demonstrations, since the design doc notes strict output schemas can
-      degrade reasoning without them
+- [x] Tier 1 — cipher name and keys supplied; tests execution, not discovery
+- [x] Tier 2 — ciphertext only
+- [x] Tier 3 — ciphertext only, transposition family
+- [x] Tier 4 — K4 plus cribs, per the gate above
+- [x] Few-shot format demonstrations, since the design doc notes strict output schemas can
+      degrade reasoning without them. Built on a Caesar shift — a cipher no instance uses
+      — so it demonstrates the format without hinting at any answer
+
+**The leak invariant is per tier here, not global.** Everywhere else a prompt never
+contains ground truth; tier 1 breaks that deliberately. So `answer`, `answer_readable`,
+`solution` and the nulls config's `deciphered` are forbidden at *every* tier, while key
+material is visible at tier 1 and withheld at 2 and 3 — expressed as a field allowlist
+rather than per-branch logic. Tested in **both** directions: a filter erring toward
+hiding everything would turn tier 1 into a second tier 2, silently, and the two would
+stop measuring different things.
 
 ### 4.3 Tool-use paradigm
 
