@@ -21,10 +21,10 @@ not during.
 | 0 — Baseline | 7 / 7 ✅ | Published as `sartajbhuvaji/kryptos-bench`, config `baseline` |
 | 1 — Cipher implementations | 22 / 22 ✅ | PR #1–#4. K3's route now published as data |
 | 2 — Scoring module | 10 / 10 ✅ | PR #5, #6. Thresholds are asserted, not yet calibrated |
-| 3 — Isomorph generation | 15 / 18 | PR #7, #8. Only 3.5, publishing, remains |
-| 4 — Tiers and paradigms | 1 / 13 | Blocked on two decision gates in 4.1 |
+| 3 — Isomorph generation | 18 / 18 ✅ | PR #7–#9. 200 instances live on the Hub |
+| 4 — Tiers and paradigms | 1 / 13 | **Next.** Blocked on two decision gates in 4.1 |
 | 5 — Reporting | 0 / 7 | |
-| **Total** | **55 / 77** | |
+| **Total** | **58 / 77** | |
 
 **Landed so far:** the baseline dataset and its card, the Hub publishing path with
 preflight checks, the benchmark runner with CER/crib scoring and the `--delimited`
@@ -33,9 +33,14 @@ taken on faith, and Vigenère and Hill for the Phase 3 composites. Every solved 
 round-trips from carved ciphertext to published answer. The scoring module now carries
 everything the tiers need — CER, similarity ratio, index of coincidence, quadgram
 fitness and the tier table. Phase 3's plaintext corpus is in: 36,653 clauses of
-public-domain prose, recombined into passages that have never existed, and the four
-generators that turn them into cipher instances — every one round-tripping through the
-Phase 1 ciphers on its own published parameters. 418 tests.
+public-domain prose, recombined into passages that have never existed, the four generators
+that turn them into cipher instances, and 200 published instances across four sibling
+configs — every one round-tripping through the Phase 1 ciphers on its own published
+parameters. 476 tests.
+
+**The measurement the project exists for is now runnable end to end:** baseline score
+versus isomorph score, per model. What Phase 4 adds is the framing — tiers, prompts, and
+the second evaluation paradigm — not the data.
 
 **Open decision gates —** two, both in Phase 4:
 
@@ -246,13 +251,24 @@ Phase 1 left for exactly this — `degenerate_columns`, `is_identity`, `is_inver
       does — imported from the baseline's test module rather than reimplemented, so the
       claim is literally true rather than approximately
 
-### 3.5 Publish
+### 3.5 Publish ✅
 
-- [ ] New sibling configs in the existing Hub repo: `isomorph_quagmire`,
-      `isomorph_transposition`, `isomorph_composite`
-- [ ] Card sections per config — including that the composites are **proxies**, and
-      solving one is not evidence about K4
-- [ ] Reuse `kryptos.huggingface.push` preflight; extend it to validate every config
+- [x] New sibling configs in the existing Hub repo: `isomorph_quagmire`,
+      `isomorph_transposition`, `isomorph_composite` — **and `isomorph_nulls`, a fourth.**
+      The two K4 proxies share no parameters, so folding them into one config would
+      publish `hill_matrix` as null on every nulls row and `null_positions` as null on
+      every Vigenère–Hill row. One cipher per config, 50 instances each, seed `20260731`
+- [x] Card sections per config — including that the composites are **proxies**, and
+      solving one is not evidence about K4. Stated in the card *and* in every proxy row's
+      published `solution`
+- [x] Reuse `kryptos.huggingface.push` preflight; extend it to validate every config —
+      in both directions: a built config the card omits uploads as files the Hub never
+      surfaces, and a declared config no builder produces resolves only because a stale
+      file survived on disk
+
+No tier threshold is baked into the data. Tiers are framings applied at evaluation time,
+so `scoring_threshold` is `0.0` — exact recovery — and the pass marks stay in
+`kryptos.scoring.thresholds` where Phase 4 can revise them without reissuing the dataset.
 
 ---
 
