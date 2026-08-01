@@ -6,11 +6,13 @@ calibration question stays answerable: these numbers are asserted, not measured,
 plan says to revisit them against observed score distributions after the first real runs.
 When that happens it should be an edit to this file, not a search for stray constants.
 
-Tier 4 deliberately has no threshold. The design document proposes "Normalized
-Levenshtein > 30%", which cannot be computed: K4 has 24 known plaintext characters and no
-reference string, so there is nothing to measure a ratio against. What replaces it is an
-open decision (plan gate 4.1), and encoding a placeholder number here would bury that
-question rather than keep it visible.
+Tier 4 deliberately has no threshold, and now that gate 4.1 is settled it still does not
+get one. The design document proposes "Normalized Levenshtein > 30%", which cannot be
+computed: K4 has 24 known plaintext characters and no reference string, so there is
+nothing to measure a ratio against. It is scored instead by crib placement *and* quadgram
+fitness reported together -- see :mod:`kryptos.scoring.frontier` for why neither works
+alone. No pass mark, because nobody has solved K4 and there is no distribution of
+successful attempts to calibrate one against.
 """
 
 from __future__ import annotations
@@ -82,10 +84,13 @@ TIERS: tuple[Tier, ...] = (
         number=4,
         name="K4 frontier",
         capability="hypothesis generation, matrix algebra",
-        metric="crib_score",
+        metric="frontier_score",
         threshold=None,
         note="No reference plaintext exists, so no CER-style threshold can be computed. "
-             "What tier 4 scores is an open decision -- plan gate 4.1.",
+             "Scored by crib placement and quadgram fitness together: placement alone is "
+             "satisfiable by construction, fitness alone says nothing about the cribs. "
+             "Reported, never graded -- there is no solved-K4 distribution to calibrate "
+             "a pass mark against.",
     ),
 )
 

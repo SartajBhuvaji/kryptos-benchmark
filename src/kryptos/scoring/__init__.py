@@ -11,6 +11,7 @@ The split by file is by *what is being measured*, not by caller:
 ``cribs``       partial-credit matching for a passage with no reference plaintext
 ``statistics``  properties of a ciphertext, independent of any answer
 ``ngram``       how English-like a candidate is, also independent of any answer
+``frontier``    scoring a passage that has no reference plaintext -- in practice K4
 ``thresholds``  the tier table, so pass marks are data rather than scattered literals
 
 The last two are the ones that reach where CER cannot. CER needs the answer; index of
@@ -24,7 +25,12 @@ use, so it is imported lazily here rather than at package import.
 
 from __future__ import annotations
 
+from typing import TYPE_CHECKING
+
 from kryptos.scoring.cribs import crib_score
+
+if TYPE_CHECKING:  # imported lazily at runtime -- frontier pulls in the quadgram table
+    from kryptos.scoring.frontier import FrontierScore
 from kryptos.scoring.distance import character_error_rate, levenshtein, similarity_ratio
 from kryptos.scoring.statistics import (
     ENGLISH_IOC,
@@ -39,9 +45,11 @@ __all__ = [
     "ENGLISH_IOC",
     "RANDOM_IOC",
     "TIERS",
+    "FrontierScore",
     "Tier",
     "character_error_rate",
     "crib_score",
+    "frontier_score",
     "index_of_coincidence",
     "letter_frequencies",
     "letters_only",
@@ -50,6 +58,14 @@ __all__ = [
     "similarity_ratio",
     "tier",
 ]
+
+
+def frontier_score(cribs: list, hypothesis: str) -> "FrontierScore":
+    """Score an attempt at a passage with no reference plaintext. See
+    :mod:`kryptos.scoring.frontier` for why it reports two numbers and no pass mark."""
+    from kryptos.scoring.frontier import score
+
+    return score(cribs, hypothesis)
 
 
 def quadgram_fitness(text: str) -> float:
