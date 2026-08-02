@@ -23,8 +23,8 @@ not during.
 | 2 — Scoring module | 10 / 10 ✅ | PR #5, #6. Thresholds are asserted, not yet calibrated |
 | 3 — Isomorph generation | 18 / 18 ✅ | PR #7–#9. 200 instances live on the Hub |
 | 4 — Tiers and paradigms | 13 / 13 ✅ | PR #10, #11. Both paradigms runnable |
-| 5 — Reporting | 0 / 7 | **Next.** Everything it needs is now persisted |
-| **Total** | **70 / 77** | |
+| 5 — Reporting | 7 / 7 ✅ | PR #12. Every comparison is one command |
+| **Total** | **77 / 77** | |
 
 **Landed so far:** the baseline dataset and its card, the Hub publishing path with
 preflight checks, the benchmark runner with CER/crib scoring and the `--delimited`
@@ -36,13 +36,18 @@ fitness and the tier table. Phase 3's plaintext corpus is in: 36,653 clauses of
 public-domain prose, recombined into passages that have never existed, the four generators
 that turn them into cipher instances, and 200 published instances across four sibling
 configs — every one round-tripping through the Phase 1 ciphers on its own published
-parameters, the four tier framings that pose them, and both evaluation paradigms behind
-one runner. 551 tests.
+parameters, the four tier framings that pose them, both evaluation paradigms behind one
+runner, and the reporting layer that turns runs into comparisons. 600 tests.
 
-**Every measurement the project was built for is now runnable**, with all four axes
-independently selectable — baseline vs isomorph, tier by tier, chain-of-thought vs tool
-use, raw vs delimited. Phase 5 does not add capability; it aggregates what the runner
-already persists per instance.
+**The roadmap is complete.** Every measurement the project was built for is runnable with
+all four axes independently selectable — baseline vs isomorph, tier by tier,
+chain-of-thought vs tool use, raw vs delimited — and reportable from one command over the
+persisted results.
+
+**Nothing has been run against a model yet.** The benchmark measures; it has not yet
+measured. The first real runs are what turn two of the risks below from open questions
+into data: the tier thresholds are still asserted rather than calibrated, and the cost of
+the full matrix is still an estimate. Size a run with `--limit` before committing to it.
 
 **No open decision gates.** All five are closed, each recorded in full in the section it
 blocked: K3's route geometry (1.2) — the document's stated width of 86 is an error and the
@@ -344,17 +349,58 @@ score.
 
 ---
 
-## Phase 5 — Reporting
+## Phase 5 — Reporting ✅ complete
 
-- [ ] Multi-model runs from one command
-- [ ] Results persisted (JSONL per run, with model, tier, paradigm, seed, timestamp)
-- [ ] Per-tier and per-paradigm breakdowns
-- [ ] **The headline comparison: baseline score vs. isomorph score, per model.** A model
+Every comparison the benchmark was built to make is now one command. Reporting added no
+capability — it aggregates what the runner already persists per instance — so the work was
+almost entirely about **which records may be averaged together**, the only part of
+reporting that can quietly produce a plausible, publishable, wrong number.
+
+Target: `src/kryptos/eval/report.py`
+
+- [x] Multi-model runs from one command — `--model A B C`, against one instance set loaded
+      once, so the models cannot drift apart on tier, presentation or instance set
+- [x] Results persisted (JSONL per run, with model, tier, paradigm, seed, timestamp) —
+      delivered by `results.py` in 4.4 and reused unchanged
+- [x] Per-tier and per-paradigm breakdowns — `--by`, defaulting to config/tier/paradigm,
+      with the model axis added automatically whenever a file holds more than one
+- [x] **The headline comparison: baseline score vs. isomorph score, per model.** A model
       that solves K1 and fails every Quagmire isomorph has told you something specific
-- [ ] CoT vs tool-use gap per tier — the design doc predicts a large one, and measuring it
+- [x] CoT vs tool-use gap per tier — the design doc predicts a large one, and measuring it
       is a result in itself
-- [ ] Raw vs character-delimited comparison, testing the doc's tokenization claim
-- [ ] Cost and token accounting per run
+- [x] Raw vs character-delimited comparison, testing the doc's tokenization claim
+- [x] Cost and token accounting per run, priced per model against published rates
+
+### The three rules the code enforces rather than documents
+
+**Never average across metric families.** A row with a reference answer is scored by CER;
+a row without one is scored by crib placement and quadgram fitness. Different scales, no
+common zero. `Summary` keeps two disjoint populations and no code path mixes them.
+
+**Paired comparisons are paired.** The CoT-vs-tool-use and raw-vs-delimited gaps are
+differences *on the same instances*. `compare()` matches on every axis except the one
+under test, discards anything unpaired and reports how many pairs survived. Comparing
+group means instead would let a refusal that dropped a hard instance from one arm improve
+that arm's mean for free — and be reported as a paradigm effect.
+
+**Baseline vs isomorph cannot be paired, and says so.** The two sides are different
+instances by construction; that is the experiment. Pairing would require pretending K1
+corresponds to some particular synthetic Quagmire.
+
+Refusals and errors stay harness outcomes, excluded from every mean. An unpriced model
+reports no cost rather than a free one — a run that silently cost nothing is the number
+nobody double-checks.
+
+### Requested model vs answering model
+
+Server-side fallback re-runs a declined request on a substitute, and the attempt recorded
+only the substitute. A fallback's answer would therefore have been filed under whichever
+model refused, putting another model's score in its column — in the headline comparison
+specifically. The two are now separate fields: **scores group by the model requested, cost
+bills the model that answered**, and any divergence is reported rather than absorbed.
+Results schema moved to v2, and an unrecognised version is refused rather than
+reinterpreted, since a field that changed meaning yields a plausible number from
+incompatible data.
 
 ---
 

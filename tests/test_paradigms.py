@@ -187,6 +187,36 @@ def test_a_refusal_is_not_scored_as_a_wrong_answer(quagmire):
     assert result.passed is None
 
 
+def test_the_model_asked_for_is_kept_apart_from_the_one_that_answered(quagmire):
+    """Server-side fallback re-runs a declined request on another model. If the answering
+    model overwrote the requested one, that answer would be filed under whichever model
+    refused -- putting another model's score in its column, in the comparison the whole
+    benchmark exists to make."""
+    client = FakeClient(message([answer_block()], model="claude-opus-4-8"))
+    attempt = paradigms.solve(client, quagmire, model="claude-opus-5", tier=2)
+
+    assert attempt.requested_model == "claude-opus-5"
+    assert attempt.model == "claude-opus-4-8"
+    assert attempt.fell_back
+
+
+def test_no_fallback_leaves_the_two_models_equal(quagmire):
+    client = FakeClient(message([answer_block()], model="claude-opus-5"))
+    attempt = paradigms.solve(client, quagmire, model="claude-opus-5", tier=2)
+
+    assert attempt.model == attempt.requested_model
+    assert not attempt.fell_back
+
+
+def test_both_models_survive_into_the_persisted_result(quagmire):
+    client = FakeClient(message([answer_block()], model="claude-opus-4-8"))
+    attempt = paradigms.solve(client, quagmire, model="claude-opus-5", tier=2)
+    result = results.score(quagmire, attempt)
+
+    assert result.requested_model == "claude-opus-5"
+    assert result.model == "claude-opus-4-8"
+
+
 # --- paused turns -----------------------------------------------------------------
 
 

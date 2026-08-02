@@ -12,6 +12,7 @@ meant to stay small; this one is not.
     python -m kryptos.eval.run_benchmark --config isomorph_quagmire --tier 2
     python -m kryptos.eval.run_benchmark --config isomorph_quagmire --paradigm tool_use
     python -m kryptos.eval.run_benchmark --config baseline --delimited --limit 2
+    python -m kryptos.eval.run_benchmark --model claude-opus-5 claude-sonnet-5
     python -m kryptos.eval.run_benchmark --config isomorph_transposition --out runs/x.jsonl
 
 The four axes are independent by design. **Config** selects the data, **tier** how the
@@ -20,9 +21,17 @@ ciphertext is rendered. Holding three fixed and varying the fourth is what makes
 comparison a result rather than a coincidence -- the baseline-vs-isomorph gap, the
 chain-of-thought-vs-tool-use gap, and the tokenization claim all come from exactly that.
 
+``--model`` takes several models, run one after another against the same instances in the
+same order. Sharing one invocation is what keeps them comparable: the models cannot drift
+apart on tier, presentation or instance set, because there is only one of each to drift.
+
 Only the dataset's input fields are ever sent to the model, and which fields count as
 input depends on the tier -- tier 1 supplies the keys on purpose. That policy lives in
 :mod:`kryptos.eval.tiers` and is enforced there rather than here.
+
+This prints one run. Aggregating several into the comparisons -- baseline vs isomorph,
+chain of thought vs tool use, raw vs delimited, cost -- is :mod:`kryptos.eval.report`,
+which reads the JSONL this writes.
 """
 
 from __future__ import annotations
@@ -133,7 +142,13 @@ def build_parser() -> argparse.ArgumentParser:
     ap = argparse.ArgumentParser(
         description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter
     )
-    ap.add_argument("--model", default=DEFAULT_MODEL)
+    ap.add_argument(
+        "--model",
+        nargs="+",
+        default=[DEFAULT_MODEL],
+        metavar="MODEL",
+        help="one or more models, run against the same instances in the same order",
+    )
     ap.add_argument(
         "--config",
         default=DEFAULT_CONFIG,
@@ -201,43 +216,50 @@ def main(argv: list[str] | None = None) -> int:
             file=sys.stderr,
         )
 
+    # Loaded once and shared by every model, so the instance set cannot differ between
+    # them -- the comparison depends on it being the same set in the same order.
     rows = load_rows(args.config, args.limit, args.passages)
     client = anthropic.Anthropic()
 
     scored: list[results.Result] = []
-    for row in rows:
-        tier = args.tier or tiers.default_tier(row)
-        label = row.get("passage") or row["id"]
-        print(
-            f"solving {label} ({row['problem_length']} chars) "
-            f"tier {tier} {args.paradigm}...",
-            file=sys.stderr,
-        )
-
-        attempt = paradigms.solve(
-            client,
-            row,
-            model=args.model,
-            tier=tier,
-            paradigm=args.paradigm,
-            effort=args.effort,
-            delimited=args.delimited,
-            few_shot=not args.no_few_shot,
-        )
-        scored.append(
-            results.score(
-                row,
-                attempt,
-                delimited=args.delimited,
-                effort=args.effort,
-                keep_transcript=not args.no_transcript,
+    for model in args.model:
+        for row in rows:
+            tier = args.tier or tiers.default_tier(row)
+            label = row.get("passage") or row["id"]
+            print(
+                f"[{model}] solving {label} ({row['problem_length']} chars) "
+                f"tier {tier} {args.paradigm}...",
+                file=sys.stderr,
             )
-        )
 
-    report(rows, scored, args.model, args)
+            attempt = paradigms.solve(
+                client,
+                row,
+                model=model,
+                tier=tier,
+                paradigm=args.paradigm,
+                effort=args.effort,
+                delimited=args.delimited,
+                few_shot=not args.no_few_shot,
+            )
+            scored.append(
+                results.score(
+                    row,
+                    attempt,
+                    delimited=args.delimited,
+                    effort=args.effort,
+                    keep_transcript=not args.no_transcript,
+                )
+            )
+
+    # Grouped by the model requested, not the one that answered: a fallback belongs in
+    # the column of the model it was asked of, or it silently vanishes from the run.
+    for model in args.model:
+        report(rows, [r for r in scored if r.requested_model == model], model, args)
 
     target = results.write(scored, args.out or f"runs/{args.config}.jsonl")
     print(f"\nwrote {len(scored)} result(s) to {target}", file=sys.stderr)
+    print(f"aggregate with: python -m kryptos.eval.report {target}", file=sys.stderr)
     return 0
 
 
