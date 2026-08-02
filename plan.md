@@ -22,9 +22,9 @@ not during.
 | 1 — Cipher implementations | 22 / 22 ✅ | PR #1–#4. K3's route now published as data |
 | 2 — Scoring module | 10 / 10 ✅ | PR #5, #6. Thresholds are asserted, not yet calibrated |
 | 3 — Isomorph generation | 18 / 18 ✅ | PR #7–#9. 200 instances live on the Hub |
-| 4 — Tiers and paradigms | 8 / 13 | PR #10. Gates resolved; 4.3 tool-use next |
-| 5 — Reporting | 0 / 7 | |
-| **Total** | **65 / 77** | |
+| 4 — Tiers and paradigms | 13 / 13 ✅ | PR #10, #11. Both paradigms runnable |
+| 5 — Reporting | 0 / 7 | **Next.** Everything it needs is now persisted |
+| **Total** | **70 / 77** | |
 
 **Landed so far:** the baseline dataset and its card, the Hub publishing path with
 preflight checks, the benchmark runner with CER/crib scoring and the `--delimited`
@@ -36,11 +36,13 @@ fitness and the tier table. Phase 3's plaintext corpus is in: 36,653 clauses of
 public-domain prose, recombined into passages that have never existed, the four generators
 that turn them into cipher instances, and 200 published instances across four sibling
 configs — every one round-tripping through the Phase 1 ciphers on its own published
-parameters, and the four tier framings that pose them. 520 tests.
+parameters, the four tier framings that pose them, and both evaluation paradigms behind
+one runner. 551 tests.
 
-**The measurement the project exists for is now runnable end to end:** baseline score
-versus isomorph score, per model. What Phase 4 adds is the framing — tiers, prompts, and
-the second evaluation paradigm — not the data.
+**Every measurement the project was built for is now runnable**, with all four axes
+independently selectable — baseline vs isomorph, tier by tier, chain-of-thought vs tool
+use, raw vs delimited. Phase 5 does not add capability; it aggregates what the runner
+already persists per instance.
 
 **No open decision gates.** All five are closed, each recorded in full in the section it
 blocked: K3's route geometry (1.2) — the document's stated width of 86 is an error and the
@@ -310,17 +312,35 @@ rather than per-branch logic. Tested in **both** directions: a filter erring tow
 hiding everything would turn tier 1 into a second tier 2, silently, and the two would
 stop measuring different things.
 
-### 4.3 Tool-use paradigm
+### 4.3 Tool-use paradigm ✅
 
-- [ ] Sandbox integration
-- [ ] Model writes, executes, and iterates on Python; transcript captured
-- [ ] Same scoring path as CoT so the two are directly comparable
+- [x] Sandbox integration — Anthropic's server-side `code_execution_20260521`, isolated
+      with no network egress. **Paused turns are resumed**: a server-side tool loop that
+      hits its iteration limit ends with `stop_reason: pause_turn`, a success that is not
+      finished. Unhandled, it returns a truncated answer that scores as a failed
+      decryption — the exact shape of a fake paradigm gap
+- [x] Model writes, executes, and iterates on Python; transcript captured — the code it
+      ran and the stdout/stderr/return code it read back
+- [x] Same scoring path as CoT so the two are directly comparable. One entry point builds
+      one prompt, one schema, one effort setting; both paradigms return the same
+      `Attempt`. A test states the request diff **exhaustively** — `{tools, system}` and
+      nothing else — and another checks structurally that scoring never branches on
+      paradigm at all
 
-### 4.4 Runner extensions
+### 4.4 Runner extensions ✅
 
-- [ ] `--tier`, `--paradigm`, `--config` flags
+- [x] `--tier`, `--paradigm`, `--config` flags — plus `--effort`, `--limit`,
+      `--no-few-shot` and `--out`. The axes are independent: holding three fixed and
+      varying the fourth is what makes each comparison a result rather than a coincidence
 - [x] Presentation stays a render-time axis — `--delimited` shipped with the runner
-- [ ] Per-instance results persisted, not just printed
+- [x] Per-instance results persisted, not just printed. Every axis is in the record
+      (config, tier, paradigm, delimited, effort, seed, model), because a results file
+      that does not say what produced it cannot be interpreted afterwards. Appends rather
+      than overwrites — a run is real API spend
+
+A refusal or a transport error is recorded as a **harness outcome, never a wrong answer**.
+Scoring a classifier hit as CER 1.0 would fold the harness's failures into the model's
+score.
 
 ---
 

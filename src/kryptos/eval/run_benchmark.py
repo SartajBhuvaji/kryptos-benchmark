@@ -1,286 +1,243 @@
-"""Run the Kryptos benchmark against a Claude model and print the results.
+"""Run the Kryptos benchmark and print the results.
 
-This is the project's harness, and it grows with the project -- tiers, evaluation
-paradigms and persisted results all land here. It scores through :mod:`kryptos.scoring`
-so that the tier thresholds, the isomorph verification and the Phase 5 reports all
-measure with the same code.
+This is the project's harness, and it grows with the project. It scores through
+:mod:`kryptos.scoring` so the tier thresholds, the isomorph verification and the Phase 5
+reports all measure with the same code.
 
 A deliberately minimal standalone version ships with the dataset itself, at
 ``src/kryptos/dataset/example.py``. That one imports nothing from this repository and is
 meant to stay small; this one is not.
 
-    python -m kryptos.eval.run_benchmark                     # all four passages
-    python -m kryptos.eval.run_benchmark --passages K1 K3    # a subset
-    python -m kryptos.eval.run_benchmark --delimited         # space-separate characters
-    python -m kryptos.eval.run_benchmark --effort max        # deeper reasoning
+    python -m kryptos.eval.run_benchmark --config baseline
+    python -m kryptos.eval.run_benchmark --config isomorph_quagmire --tier 2
+    python -m kryptos.eval.run_benchmark --config isomorph_quagmire --paradigm tool_use
+    python -m kryptos.eval.run_benchmark --config baseline --delimited --limit 2
+    python -m kryptos.eval.run_benchmark --config isomorph_transposition --out runs/x.jsonl
 
-Only the dataset's input fields are ever sent to the model. The ground-truth columns
-(`solution`, `answer`, `answer_readable`, cipher keys) stay on this side of the wall --
-that separation is the whole point of the field grouping in the schema, and it is
-enforced here in `build_prompt` rather than left to convention.
+The four axes are independent by design. **Config** selects the data, **tier** how the
+problem is framed, **paradigm** whether the model may run code, and **delimited** how the
+ciphertext is rendered. Holding three fixed and varying the fourth is what makes each
+comparison a result rather than a coincidence -- the baseline-vs-isomorph gap, the
+chain-of-thought-vs-tool-use gap, and the tokenization claim all come from exactly that.
+
+Only the dataset's input fields are ever sent to the model, and which fields count as
+input depends on the tier -- tier 1 supplies the keys on purpose. That policy lives in
+:mod:`kryptos.eval.tiers` and is enforced there rather than here.
 """
 
 from __future__ import annotations
 
 import argparse
-import json
 import os
 import pathlib
 import sys
-from dataclasses import dataclass
 
 if __package__ in (None, ""):  # allow running the file directly
     sys.path.insert(0, str(pathlib.Path(__file__).resolve().parents[2]))
 
-from kryptos.scoring import character_error_rate, crib_score, letters_only
+from kryptos.eval import paradigms, results, tiers
 
 DATASET = "sartajbhuvaji/kryptos-bench"
-CONFIG = "baseline"
 SPLIT = "test"
-
 DEFAULT_MODEL = "claude-opus-5"
+DEFAULT_CONFIG = "baseline"
 
-#: The only columns a solver may see. Mirrors INPUT_FIELDS in the dataset schema.
-INPUT_FIELDS = ("problem", "problem_letters_only", "problem_length", "cribs")
-
-SYSTEM_PROMPT = """You are an expert cryptanalyst working on classical ciphers.
-
-You will be given a ciphertext. Recover the plaintext.
-
-Work the problem rather than recalling it. If you recognise the ciphertext, still derive
-the answer from the text itself -- state the cipher, the key, and the steps that take the
-ciphertext to your plaintext.
-
-Useful starting points: the index of coincidence distinguishes substitution from
-transposition (a transposition leaves it at the English norm of about 0.066 and preserves
-letter frequencies exactly). For a periodic polyalphabetic cipher, find the period first,
-then solve each residue class as a separate monoalphabetic substitution.
-
-Report the plaintext as uppercase A-Z with no spaces or punctuation."""
-
-ANSWER_SCHEMA = {
-    "type": "object",
-    "properties": {
-        "cipher": {
-            "type": "string",
-            "description": "The cipher you identified, or 'unknown' if you could not.",
-        },
-        "key": {
-            "type": "string",
-            "description": "Keys or parameters recovered, or 'unknown'.",
-        },
-        "method": {
-            "type": "string",
-            "description": "How you got from ciphertext to plaintext, in a few sentences.",
-        },
-        "plaintext": {
-            "type": "string",
-            "description": "Recovered plaintext, uppercase A-Z only, no spaces. "
-            "Your best attempt even if you are unsure.",
-        },
-    },
-    "required": ["cipher", "key", "method", "plaintext"],
-    "additionalProperties": False,
-}
+#: Every config the dataset publishes. Kept in the order a reader would want them.
+CONFIGS = (
+    "baseline",
+    "isomorph_quagmire",
+    "isomorph_transposition",
+    "isomorph_composite",
+    "isomorph_nulls",
+)
 
 
-# --- model call ------------------------------------------------------------------
+def load_rows(config: str, limit: int | None, passages: list[str] | None) -> list[dict]:
+    from datasets import load_dataset
+
+    rows = [dict(r) for r in load_dataset(DATASET, config, split=SPLIT)]
+
+    if passages:
+        wanted = {p.upper() for p in passages}
+        rows = [r for r in rows if str(r.get("passage", "")).upper() in wanted]
+        if not rows:
+            raise SystemExit(f"no passages matched {sorted(wanted)}")
+    if limit is not None:
+        rows = rows[:limit]
+    return rows
 
 
-@dataclass
-class Attempt:
-    passage: str
-    cipher: str
-    key: str
-    plaintext: str
-    refused: bool = False
-    refusal_category: str | None = None
-    input_tokens: int = 0
-    output_tokens: int = 0
+def report(rows: list[dict], scored: list[results.Result], model: str, args) -> None:
+    by_id = {r["id"]: r for r in rows}
 
+    print()
+    print(f"Kryptos benchmark -- {DATASET} [{args.config}/{SPLIT}] -- {model}")
+    print(
+        f"tier {args.tier or 'auto'} | paradigm {args.paradigm} | "
+        f"effort {args.effort} | {'delimited' if args.delimited else 'raw'}"
+    )
+    print("=" * 82)
+    print(f"{'instance':<34} {'tier':<5} {'score':<28} {'identified as':<14}")
+    print("-" * 82)
 
-def build_prompt(row: dict, delimited: bool) -> str:
-    """Render a solver-visible prompt. Reads only INPUT_FIELDS -- never ground truth."""
-    visible = {k: row[k] for k in INPUT_FIELDS}
+    for result in scored:
+        row = by_id[result.instance_id]
+        label = str(row.get("passage") or result.instance_id)[:32]
 
-    ciphertext = visible["problem"]
-    if delimited:
-        # The design doc's tokenization mitigation: one token per character, so the
-        # model can address individual letters by position instead of guessing at
-        # subword boundaries.
-        ciphertext = " ".join(ciphertext)
+        if result.refused:
+            score = f"refused ({result.refusal_category or 'uncategorised'})"
+        elif result.error:
+            score = f"error ({result.error})"
+        elif result.cer is not None:
+            verdict = "SOLVED" if result.cer == 0.0 else ""
+            if result.passed and result.cer > 0.0:
+                verdict = "passed"
+            score = f"CER {result.cer:6.1%}  sim {result.similarity:5.1f}  {verdict}"
+        else:
+            score = (
+                f"{result.cribs_placed}/{result.cribs_total} cribs, "
+                f"fit {result.fitness:.2f}"
+            )
 
-    parts = [
-        f"Ciphertext ({visible['problem_length']} characters):",
-        "",
-        ciphertext,
-        "",
-    ]
+        print(f"{label:<34} {result.tier:<5} {score:<28} {result.cipher[:14]:<14}")
 
-    if visible["cribs"]:
-        parts += [
-            "Confirmed plaintext fragments, at these 1-indexed positions in the "
-            "plaintext:",
-            "",
-        ]
-        parts += [
-            f"  {c['plaintext']} at {c['start']}-{c['end']}" for c in visible["cribs"]
-        ]
-        parts += [
-            "",
-            "This ciphertext is unsolved. Produce your best hypothesis: propose a "
-            "mechanism consistent with the fragments and apply it to the full text.",
-            "",
-        ]
-
-    parts.append("Recover the plaintext.")
-    return "\n".join(parts)
-
-
-def solve(client, model: str, effort: str, row: dict, delimited: bool) -> Attempt:
-    import anthropic
-
-    try:
-        with client.beta.messages.stream(
-            model=model,
-            max_tokens=32000,
-            system=SYSTEM_PROMPT,
-            messages=[{"role": "user", "content": build_prompt(row, delimited)}],
-            thinking={"type": "adaptive"},
-            output_config={
-                "effort": effort,
-                "format": {"type": "json_schema", "schema": ANSWER_SCHEMA},
-            },
-            # Cryptanalysis sits close enough to the cyber policy boundary that a
-            # benign request is occasionally declined. Server-side fallback re-runs
-            # the request on Anthropic's recommended model rather than returning a
-            # refusal, so one classifier hit does not void a benchmark run.
-            betas=["server-side-fallback-2026-07-01"],
-            fallbacks="default",
-        ) as stream:
-            message = stream.get_final_message()
-    except anthropic.APIStatusError as exc:
-        print(f"  {row['passage']}: API error {exc.status_code} -- {exc.message}",
-              file=sys.stderr)
-        return Attempt(row["passage"], "error", "error", "")
-
-    usage = message.usage
-
-    # Check stop_reason before reading content: on a refusal the content array is
-    # empty (pre-output) or partial (mid-stream), so indexing it blindly breaks.
-    if message.stop_reason == "refusal":
-        category = getattr(message.stop_details, "category", None)
-        return Attempt(
-            row["passage"], "refused", "refused", "",
-            refused=True, refusal_category=category,
-            input_tokens=usage.input_tokens, output_tokens=usage.output_tokens,
+    print("-" * 82)
+    totals = results.summarise(scored)
+    if totals["mean_cer"] is not None:
+        print(
+            f"mean CER over {totals['scored']} scoreable instance(s): "
+            f"{totals['mean_cer']:.1%}  |  solved {totals['solved']}  |  "
+            f"passed tier {totals['passed']}"
         )
-
-    text = next((b.text for b in message.content if b.type == "text"), "")
-    try:
-        parsed = json.loads(text)
-    except json.JSONDecodeError:
-        return Attempt(row["passage"], "unparsed", "unparsed", "",
-                       input_tokens=usage.input_tokens,
-                       output_tokens=usage.output_tokens)
-
-    return Attempt(
-        passage=row["passage"],
-        cipher=parsed.get("cipher", ""),
-        key=parsed.get("key", ""),
-        plaintext=letters_only(parsed.get("plaintext", "")),
-        input_tokens=usage.input_tokens,
-        output_tokens=usage.output_tokens,
+    if totals["refused"] or totals["errored"]:
+        print(
+            f"not scored: {totals['refused']} refused, {totals['errored']} errored "
+            "-- these are harness outcomes, not wrong answers"
+        )
+    print(
+        f"tokens: {totals['input_tokens']:,} in / {totals['output_tokens']:,} out"
+        + (
+            f"  |  {totals['code_executions']} code execution(s)"
+            if args.paradigm == "tool_use"
+            else ""
+        )
     )
 
-
-# --- reporting -------------------------------------------------------------------
-
-
-def report(rows: list[dict], attempts: list[Attempt], model: str) -> None:
-    by_passage = {r["passage"]: r for r in rows}
-
-    print()
-    print(f"Kryptos benchmark -- {DATASET} [{CONFIG}/{SPLIT}] -- {model}")
-    print("=" * 78)
-    print(f"{'passage':<8} {'metric':<11} {'score':<22} {'cipher identified':<24}")
-    print("-" * 78)
-
-    scored, total_cer = 0, 0.0
-    for a in attempts:
-        row = by_passage[a.passage]
-
-        if a.refused:
-            score = f"refused ({a.refusal_category or 'uncategorised'})"
-        elif row["scoring_metric"] == "cer":
-            cer = character_error_rate(row["answer"], a.plaintext)
-            scored += 1
-            total_cer += cer
-            verdict = "SOLVED" if cer == 0.0 else ("close" if cer < 0.15 else "")
-            score = f"CER {cer:6.1%}  {verdict}"
-        else:
-            exact, anywhere = crib_score(row["cribs"], a.plaintext)
-            score = f"{exact}/{len(row['cribs'])} placed, {anywhere} present"
-
-        print(f"{a.passage:<8} {row['scoring_metric']:<11} {score:<22} {a.cipher[:24]:<24}")
-
-    print("-" * 78)
-    if scored:
-        print(f"mean CER over {scored} scoreable passage(s): {total_cer / scored:.1%}")
-    tokens_in = sum(a.input_tokens for a in attempts)
-    tokens_out = sum(a.output_tokens for a in attempts)
-    print(f"tokens: {tokens_in:,} in / {tokens_out:,} out")
-
-    print()
-    print("K1-K3 and their solutions are widely published, so a low CER here does not")
-    print("distinguish cryptanalysis from recall. Read it as a memorisation baseline.")
+    if args.config == "baseline":
+        print()
+        print("K1-K3 and their solutions are widely published, so a low CER here does not")
+        print("distinguish cryptanalysis from recall. Read it as a memorisation baseline.")
 
 
-def main() -> int:
-    ap = argparse.ArgumentParser(description=__doc__,
-                                 formatter_class=argparse.RawDescriptionHelpFormatter)
+def build_parser() -> argparse.ArgumentParser:
+    ap = argparse.ArgumentParser(
+        description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter
+    )
     ap.add_argument("--model", default=DEFAULT_MODEL)
-    ap.add_argument("--effort", default="high",
-                    choices=["low", "medium", "high", "xhigh", "max"])
-    ap.add_argument("--passages", nargs="+", metavar="K",
-                    help="subset to run, e.g. --passages K1 K3")
-    ap.add_argument("--delimited", action="store_true",
-                    help="space-separate ciphertext characters (tokenization mitigation)")
-    args = ap.parse_args()
+    ap.add_argument(
+        "--config",
+        default=DEFAULT_CONFIG,
+        choices=CONFIGS,
+        help="which published config to evaluate",
+    )
+    ap.add_argument(
+        "--tier",
+        type=int,
+        choices=[t.number for t in tiers.TIERS],
+        help="task framing; defaults to the tier each row is normally posed at",
+    )
+    ap.add_argument(
+        "--paradigm",
+        default="cot",
+        choices=list(paradigms.PARADIGMS),
+        help="cot reasons in-context; tool_use gives the model a Python sandbox",
+    )
+    ap.add_argument(
+        "--effort", default="high", choices=["low", "medium", "high", "xhigh", "max"]
+    )
+    ap.add_argument(
+        "--delimited",
+        action="store_true",
+        help="space-separate ciphertext characters (tokenization mitigation)",
+    )
+    ap.add_argument(
+        "--no-few-shot",
+        action="store_true",
+        help="drop the worked format example, so its effect can be measured",
+    )
+    ap.add_argument("--passages", nargs="+", metavar="K", help="baseline only, e.g. K1 K3")
+    ap.add_argument("--limit", type=int, help="evaluate only the first N instances")
+    ap.add_argument(
+        "--out",
+        help="append per-instance results as JSONL (default: runs/<config>.jsonl)",
+    )
+    ap.add_argument(
+        "--no-transcript",
+        action="store_true",
+        help="omit tool-use transcripts from the persisted results",
+    )
+    return ap
+
+
+def main(argv: list[str] | None = None) -> int:
+    args = build_parser().parse_args(argv)
 
     try:
         import anthropic  # noqa: F401
-        from datasets import load_dataset
+        import datasets  # noqa: F401
     except ImportError as exc:
-        print(f"missing dependency: {exc.name}\n"
-              f"  pip install anthropic datasets rapidfuzz", file=sys.stderr)
+        print(
+            f"missing dependency: {exc.name}\n  pip install anthropic datasets rapidfuzz",
+            file=sys.stderr,
+        )
         return 1
 
     import anthropic
 
     if not os.environ.get("ANTHROPIC_API_KEY"):
         # Not fatal: the SDK also resolves an `ant auth login` profile.
-        print("note: ANTHROPIC_API_KEY unset; falling back to a stored auth profile",
-              file=sys.stderr)
+        print(
+            "note: ANTHROPIC_API_KEY unset; falling back to a stored auth profile",
+            file=sys.stderr,
+        )
 
-    ds = load_dataset(DATASET, CONFIG, split=SPLIT)
-    rows = [dict(r) for r in ds]
-    if args.passages:
-        wanted = {p.upper() for p in args.passages}
-        rows = [r for r in rows if r["passage"] in wanted]
-        if not rows:
-            print(f"no passages matched {sorted(wanted)}", file=sys.stderr)
-            return 1
-
+    rows = load_rows(args.config, args.limit, args.passages)
     client = anthropic.Anthropic()
 
-    attempts = []
+    scored: list[results.Result] = []
     for row in rows:
-        print(f"solving {row['passage']} ({row['problem_length']} chars)...",
-              file=sys.stderr)
-        attempts.append(solve(client, args.model, args.effort, row, args.delimited))
+        tier = args.tier or tiers.default_tier(row)
+        label = row.get("passage") or row["id"]
+        print(
+            f"solving {label} ({row['problem_length']} chars) "
+            f"tier {tier} {args.paradigm}...",
+            file=sys.stderr,
+        )
 
-    report(rows, attempts, args.model)
+        attempt = paradigms.solve(
+            client,
+            row,
+            model=args.model,
+            tier=tier,
+            paradigm=args.paradigm,
+            effort=args.effort,
+            delimited=args.delimited,
+            few_shot=not args.no_few_shot,
+        )
+        scored.append(
+            results.score(
+                row,
+                attempt,
+                delimited=args.delimited,
+                effort=args.effort,
+                keep_transcript=not args.no_transcript,
+            )
+        )
+
+    report(rows, scored, args.model, args)
+
+    target = results.write(scored, args.out or f"runs/{args.config}.jsonl")
+    print(f"\nwrote {len(scored)} result(s) to {target}", file=sys.stderr)
     return 0
 
 
