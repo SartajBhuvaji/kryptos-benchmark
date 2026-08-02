@@ -27,7 +27,11 @@ from kryptos.scoring import character_error_rate, similarity_ratio, tier as tier
 
 #: Schema version for the persisted records. Bumped when a field changes meaning, so an
 #: analysis script reading an old file can tell.
-RESULTS_VERSION = 1
+#:
+#: v2 split ``model`` into the model requested and the model that answered. In v1 a
+#: server-side fallback wrote the *substitute* model into the only model field, so a
+#: multi-model comparison would have filed its answer under whichever model refused.
+RESULTS_VERSION = 2
 
 
 @dataclass
@@ -39,9 +43,13 @@ class Result:
     config: str
     tier: int
     paradigm: str
+    #: The model that answered -- what was billed, and what a cost table should use.
     model: str
     delimited: bool
     effort: str
+    #: The model this was requested as -- the experimental axis, and what a per-model
+    #: breakdown must group by. Equal to ``model`` unless a fallback served the request.
+    requested_model: str = ""
     seed: int | None = None
 
     # --- what came back ---
@@ -98,6 +106,7 @@ def score(
         model=attempt.model,
         delimited=delimited,
         effort=effort,
+        requested_model=attempt.requested_model or attempt.model,
         seed=row.get("seed"),
         cipher=attempt.cipher,
         key=attempt.key,

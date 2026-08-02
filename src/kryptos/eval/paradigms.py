@@ -111,12 +111,22 @@ class Attempt:
     transcript: list[dict[str, Any]] = field(default_factory=list)
     code_executions: int = 0
     resumes: int = 0
+    #: The model that actually answered. Not necessarily the one asked for: server-side
+    #: fallback re-runs a declined request on another model, and reports it here.
     model: str = ""
+    #: The model this attempt was requested as -- the experimental axis. Kept apart from
+    #: ``model`` so a fallback cannot be silently counted as a result for the model that
+    #: refused, which would put another model's score in its column.
+    requested_model: str = ""
 
     @property
     def usable(self) -> bool:
         """Whether this produced an answer to score, as opposed to a failure to report."""
         return not self.refused and self.error is None
+
+    @property
+    def fell_back(self) -> bool:
+        return bool(self.model) and self.model != self.requested_model
 
 
 def solve(
@@ -166,7 +176,13 @@ def solve(
         {"role": "user", "content": tiers.build_prompt(row, tier, delimited=delimited)}
     ]
 
-    attempt = Attempt(instance_id=row["id"], tier=tier, paradigm=paradigm, model=model)
+    attempt = Attempt(
+        instance_id=row["id"],
+        tier=tier,
+        paradigm=paradigm,
+        model=model,
+        requested_model=model,
+    )
     return _run(client, request, messages, attempt)
 
 
