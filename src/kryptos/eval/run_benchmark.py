@@ -40,11 +40,13 @@ import argparse
 import os
 import pathlib
 import sys
+from concurrent.futures import FIRST_COMPLETED, Future, ThreadPoolExecutor, wait
+from dataclasses import asdict, dataclass
 
 if __package__ in (None, ""):  # allow running the file directly
     sys.path.insert(0, str(pathlib.Path(__file__).resolve().parents[2]))
 
-from kryptos.eval import paradigms, results, tiers
+from kryptos.eval import paradigms, report as reporting, results, tiers
 
 DATASET = "sartajbhuvaji/kryptos-bench"
 SPLIT = "test"
@@ -74,6 +76,174 @@ def load_rows(config: str, limit: int | None, passages: list[str] | None) -> lis
     if limit is not None:
         rows = rows[:limit]
     return rows
+
+
+@dataclass(frozen=True)
+class Job:
+    """One instance, at one tier, for one model -- the unit of work and of resumption."""
+
+    model: str
+    tier: int
+    row: dict
+
+    def __hash__(self) -> int:  # rows are dicts; identify a job by what names it
+        return hash((self.model, self.tier, self.row["id"]))
+
+
+def identity(job: Job, args) -> tuple:
+    """The identity a job's result will be persisted under.
+
+    Built by handing a synthetic record to the reporting module's own
+    :func:`~kryptos.eval.report.identity`, rather than assembling the tuple here. The
+    resume check is only correct while the two agree, and a field added to one but not
+    the other would otherwise make every instance look unfinished -- or worse, make a
+    changed axis look already done.
+    """
+    return reporting.identity(
+        {
+            "instance_id": job.row["id"],
+            "tier": job.tier,
+            "paradigm": args.paradigm,
+            "requested_model": job.model,
+            "delimited": args.delimited,
+            "effort": args.effort,
+        }
+    )
+
+
+def plan(rows: list[dict], args) -> list[Job]:
+    """Every job this invocation would run, models outermost."""
+    return [
+        Job(model=model, tier=args.tier or tiers.default_tier(row), row=row)
+        for model in args.model
+        for row in rows
+    ]
+
+
+def finished(path: str | pathlib.Path) -> set[tuple]:
+    """Identities already answered in a results file, so ``--resume`` can skip them.
+
+    **Refusals and errors are deliberately not counted as finished.** They are harness
+    outcomes, not answers, and a resumed run is usually a response to exactly those --
+    a dropped connection, a rate limit, one classifier hit. Skipping them would make
+    ``--resume`` cement the failures it exists to recover from. Re-running appends a
+    fresh record, and the reporting layer already keeps the newest per identity.
+    """
+    target = pathlib.Path(path)
+    if not target.exists():
+        return set()
+    return {
+        reporting.identity(record)
+        for record in results.read(target)
+        if not record.get("refused") and not record.get("error")
+    }
+
+
+class Budget:
+    """A spend ceiling in USD, checked between dispatches.
+
+    Not a hard cap, and the distinction matters when running in parallel: work already
+    in flight when the ceiling is crossed is allowed to finish, so the final figure can
+    exceed the limit by up to ``concurrency - 1`` instances. Set the ceiling below what
+    you are actually willing to spend.
+
+    An unpriced model is refused outright rather than treated as free. A ceiling that
+    silently stops applying is worse than no ceiling, because it is the one you stop
+    checking.
+    """
+
+    def __init__(self, limit: float | None) -> None:
+        self.limit = limit
+        self.spent = 0.0
+        self.unpriced: set[str] = set()
+
+    def add(self, result: results.Result) -> None:
+        amount = reporting.usd(asdict(result))
+        if amount is None:
+            self.unpriced.add(result.model)
+        else:
+            self.spent += amount
+
+    @property
+    def exhausted(self) -> bool:
+        if self.limit is None:
+            return False
+        if self.unpriced:
+            return True          # cannot price the run; stop rather than guess
+        return self.spent >= self.limit
+
+
+def execute(client, job: Job, args) -> results.Result:
+    """Run one job and score it. Called on a worker thread; touches no shared state."""
+    attempt = paradigms.solve(
+        client,
+        job.row,
+        model=job.model,
+        tier=job.tier,
+        paradigm=args.paradigm,
+        effort=args.effort,
+        delimited=args.delimited,
+        few_shot=not args.no_few_shot,
+    )
+    return results.score(
+        job.row,
+        attempt,
+        delimited=args.delimited,
+        effort=args.effort,
+        keep_transcript=not args.no_transcript,
+    )
+
+
+def run(client, jobs: list[Job], args, budget: Budget) -> list[results.Result]:
+    """Work through the jobs, up to ``--concurrency`` at a time, until the budget stops.
+
+    Dispatch is windowed rather than submitted up front: a budget checked only before
+    the first submission is not a budget. Interrupting returns what has been scored so
+    far, so a long run can be stopped and resumed rather than lost.
+    """
+    scored: list[results.Result] = []
+    queue = iter(jobs)
+    in_flight: set[Future] = set()
+    total = len(jobs)
+
+    def fill(pool: ThreadPoolExecutor) -> None:
+        while len(in_flight) < args.concurrency and not budget.exhausted:
+            job = next(queue, None)
+            if job is None:
+                return
+            label = job.row.get("passage") or job.row["id"]
+            print(
+                f"[{job.model}] solving {label} ({job.row['problem_length']} chars) "
+                f"tier {job.tier} {args.paradigm}...",
+                file=sys.stderr,
+            )
+            in_flight.add(pool.submit(execute, client, job, args))
+
+    with ThreadPoolExecutor(max_workers=args.concurrency) as pool:
+        try:
+            fill(pool)
+            while in_flight:
+                done, pending = wait(in_flight, return_when=FIRST_COMPLETED)
+                in_flight.clear()
+                in_flight.update(pending)
+                for future in done:
+                    result = future.result()
+                    scored.append(result)
+                    budget.add(result)
+                    print(
+                        f"  {len(scored)}/{total} done"
+                        + (f", ${budget.spent:.2f} spent" if budget.limit else ""),
+                        file=sys.stderr,
+                    )
+                fill(pool)
+        except KeyboardInterrupt:
+            print(
+                f"\ninterrupted after {len(scored)} instance(s); "
+                "writing what completed -- re-run with --resume to continue",
+                file=sys.stderr,
+            )
+
+    return scored
 
 
 def report(rows: list[dict], scored: list[results.Result], model: str, args) -> None:
@@ -191,6 +361,26 @@ def build_parser() -> argparse.ArgumentParser:
         action="store_true",
         help="omit tool-use transcripts from the persisted results",
     )
+    ap.add_argument(
+        "--resume",
+        action="store_true",
+        help="skip instances already answered in the output file; refusals and errors "
+        "are retried rather than skipped",
+    )
+    ap.add_argument(
+        "--concurrency",
+        type=int,
+        default=1,
+        metavar="N",
+        help="instances in flight at once (default 1; 4-8 is a reasonable range)",
+    )
+    ap.add_argument(
+        "--max-spend",
+        type=float,
+        metavar="USD",
+        help="stop dispatching once this much has been spent; work already in flight "
+        "finishes, so the ceiling is soft by up to --concurrency instances",
+    )
     return ap
 
 
@@ -216,49 +406,51 @@ def main(argv: list[str] | None = None) -> int:
             file=sys.stderr,
         )
 
+    if args.concurrency < 1:
+        raise SystemExit("--concurrency must be at least 1")
+
     # Loaded once and shared by every model, so the instance set cannot differ between
     # them -- the comparison depends on it being the same set in the same order.
     rows = load_rows(args.config, args.limit, args.passages)
+    out = args.out or f"runs/{args.config}.jsonl"
+    jobs = plan(rows, args)
+
+    if args.resume:
+        done = finished(out)
+        jobs, skipped = [j for j in jobs if identity(j, args) not in done], len(jobs)
+        skipped -= len(jobs)
+        print(f"resuming: {skipped} already answered, {len(jobs)} to run", file=sys.stderr)
+        if not jobs:
+            print("nothing left to run", file=sys.stderr)
+            return 0
+
     client = anthropic.Anthropic()
-
-    scored: list[results.Result] = []
-    for model in args.model:
-        for row in rows:
-            tier = args.tier or tiers.default_tier(row)
-            label = row.get("passage") or row["id"]
-            print(
-                f"[{model}] solving {label} ({row['problem_length']} chars) "
-                f"tier {tier} {args.paradigm}...",
-                file=sys.stderr,
-            )
-
-            attempt = paradigms.solve(
-                client,
-                row,
-                model=model,
-                tier=tier,
-                paradigm=args.paradigm,
-                effort=args.effort,
-                delimited=args.delimited,
-                few_shot=not args.no_few_shot,
-            )
-            scored.append(
-                results.score(
-                    row,
-                    attempt,
-                    delimited=args.delimited,
-                    effort=args.effort,
-                    keep_transcript=not args.no_transcript,
-                )
-            )
+    budget = Budget(args.max_spend)
+    scored = run(client, jobs, args, budget)
 
     # Grouped by the model requested, not the one that answered: a fallback belongs in
     # the column of the model it was asked of, or it silently vanishes from the run.
     for model in args.model:
-        report(rows, [r for r in scored if r.requested_model == model], model, args)
+        mine = [r for r in scored if r.requested_model == model]
+        if mine:
+            report(rows, mine, model, args)
 
-    target = results.write(scored, args.out or f"runs/{args.config}.jsonl")
+    target = results.write(scored, out)
     print(f"\nwrote {len(scored)} result(s) to {target}", file=sys.stderr)
+    if budget.unpriced:
+        print(
+            f"stopped: no price on file for {', '.join(sorted(budget.unpriced))}, so "
+            "--max-spend could not be enforced",
+            file=sys.stderr,
+        )
+    elif budget.exhausted:
+        print(
+            f"stopped: spend ceiling reached (${budget.spent:.2f} of ${args.max_spend:.2f}); "
+            f"{len(jobs) - len(scored)} instance(s) not run -- --resume continues",
+            file=sys.stderr,
+        )
+    elif args.max_spend:
+        print(f"spent ${budget.spent:.2f} of ${args.max_spend:.2f}", file=sys.stderr)
     print(f"aggregate with: python -m kryptos.eval.report {target}", file=sys.stderr)
     return 0
 

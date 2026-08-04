@@ -24,7 +24,8 @@ not during.
 | 3 — Isomorph generation | 18 / 18 ✅ | PR #7–#9. 200 instances live on the Hub |
 | 4 — Tiers and paradigms | 13 / 13 ✅ | PR #10, #11. Both paradigms runnable |
 | 5 — Reporting | 7 / 7 ✅ | PR #12. Every comparison is one command |
-| **Total** | **77 / 77** | |
+| 6 — Running it | 1 / 4 | Runner controls in; the pilot is next |
+| **Total** | **78 / 81** | |
 
 **Landed so far:** the baseline dataset and its card, the Hub publishing path with
 preflight checks, the benchmark runner with CER/crib scoring and the `--delimited`
@@ -37,17 +38,19 @@ public-domain prose, recombined into passages that have never existed, the four 
 that turn them into cipher instances, and 200 published instances across four sibling
 configs — every one round-tripping through the Phase 1 ciphers on its own published
 parameters, the four tier framings that pose them, both evaluation paradigms behind one
-runner, and the reporting layer that turns runs into comparisons. 600 tests.
+runner, the reporting layer that turns runs into comparisons, and the runner controls
+that make a long run resumable and cost-bounded. 622 tests.
 
-**The roadmap is complete.** Every measurement the project was built for is runnable with
+**The roadmap is complete through Phase 5.** Every measurement the project was built for is runnable with
 all four axes independently selectable — baseline vs isomorph, tier by tier,
 chain-of-thought vs tool use, raw vs delimited — and reportable from one command over the
 persisted results.
 
 **Nothing has been run against a model yet.** The benchmark measures; it has not yet
-measured. The first real runs are what turn two of the risks below from open questions
-into data: the tier thresholds are still asserted rather than calibrated, and the cost of
-the full matrix is still an estimate. Size a run with `--limit` before committing to it.
+measured. Phase 6 is that work, and the first real runs are what turn two of the risks
+below from open questions into data: the tier thresholds are still asserted rather than
+calibrated, and the cost of the full matrix is still an estimate. Size a run with
+`--limit` and `--max-spend` before committing to it.
 
 **No open decision gates.** All five are closed, each recorded in full in the section it
 blocked: K3's route geometry (1.2) — the document's stated width of 86 is an error and the
@@ -401,6 +404,55 @@ bills the model that answered**, and any divergence is reported rather than abso
 Results schema moved to v2, and an unrecognised version is refused rather than
 reinterpreted, since a field that changed meaning yields a plausible number from
 incompatible data.
+
+---
+
+## Phase 6 — Running it
+
+The roadmap built a benchmark that measures. This phase is about actually measuring, and
+it starts with the two risks below that are still estimates rather than data: the tier
+thresholds are uncalibrated, and the cost of the full matrix is a guess.
+
+- [x] Runner controls for a long run — `--resume`, `--max-spend`, `--concurrency`
+- [ ] A sized pilot: one model, `--limit 5`, all five configs, to get real cost per
+      instance and a first look at the score distribution
+- [ ] Calibrate the tier thresholds against that distribution, replacing the asserted
+      0% / 5% / 10%
+- [ ] The full matrix, once the pilot says what it costs
+
+### Why the controls are counted rather than clocked
+
+The obvious way to bound a long run is a time limit, and it is wrong here. Stopping on a
+clock cuts each config at an arbitrary point, so the baseline and isomorph means would
+cover different-sized samples — the exact comparison `report.py` refuses to make
+everywhere else. Two runs of "four hours" are not comparable to each other either.
+
+Eval harnesses standardise on item count plus resumability instead, and that is what
+landed: a fixed instance set, `--limit` to size it, and an append-only results file that
+`--resume` reads to skip what is already answered. A wall-clock cap is legitimate as a
+kill switch, not as the definition of a run — and killing a run is now safe, because
+interrupting writes what completed.
+
+Two details that are easy to get wrong and are documented in the code rather than left to
+be discovered. `--resume` keys on the same identity the reporting layer dedupes by,
+computed by handing a synthetic record to `report.identity()` — assembling that tuple
+separately would let the two drift, and a drifted resume either re-runs everything or
+skips work it never did. And `--max-spend` is soft: dispatch stops when the ceiling is
+crossed, but work already in flight finishes, so a parallel run can exceed it by up to
+`--concurrency` instances.
+
+### Haiku 4.5 will not run on this harness
+
+`paradigms.solve` sends `thinking: {"type": "adaptive"}` and `output_config.effort`, and
+Haiku 4.5 accepts neither — it is a pre-4.6 model that still takes
+`thinking: {"type": "enabled", "budget_tokens": N}`. Running the cheapest model therefore
+needs a per-model capability shim in the request builder, not a flag. Deferred: Sonnet 5
+runs unmodified and bills at an introductory $2/$10 per MTok through 2026-08-31, which
+makes the saving from Haiku small against the cost of building and testing that shim.
+
+Two smaller limits, for whenever the batch path is worth taking: the Batches API halves
+token cost but **rejects the `fallbacks` parameter**, and server-side tool use does not
+fit it (there is no `pause_turn` resume loop). Batch would serve chain-of-thought only.
 
 ---
 
