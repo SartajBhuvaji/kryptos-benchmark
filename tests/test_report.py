@@ -16,6 +16,8 @@ from __future__ import annotations
 
 import json
 
+import statistics
+
 import pytest
 
 from kryptos.eval import report
@@ -551,3 +553,89 @@ def test_cli_rejects_an_empty_file(tmp_path):
     path.write_text("", encoding="utf-8")
     with pytest.raises(SystemExit, match="no results found"):
         report.main([str(path)])
+
+
+# --- uncertainty on the means -----------------------------------------------------
+#
+# Every established benchmark reports dispersion beside its headline number. This one has
+# a sharper reason to: the whole result is a *difference* between two means, and a gap
+# between arms whose intervals overlap is not a finding. Without this column a pilot-sized
+# number reads as exact and gets quoted.
+
+
+def test_a_single_instance_has_no_interval():
+    """One observation has no dispersion. Reporting +/-0.0% would read as certainty."""
+    assert report.summarise([record(cer=0.5)]).cer_ci95 is None
+
+
+def test_identical_scores_give_a_zero_width_interval():
+    summary = report.summarise([record(instance_id=f"i{n}", cer=0.4) for n in range(5)])
+    assert summary.mean_cer == pytest.approx(0.4)
+    assert summary.cer_ci95 == pytest.approx(0.0)
+
+
+def test_a_spread_population_gets_a_wider_interval_than_a_tight_one():
+    tight = report.summarise(
+        [record(instance_id=f"t{n}", cer=c) for n, c in enumerate([0.50, 0.51, 0.49])]
+    )
+    loose = report.summarise(
+        [record(instance_id=f"l{n}", cer=c) for n, c in enumerate([0.10, 0.50, 0.90])]
+    )
+    assert loose.cer_ci95 > tight.cer_ci95
+
+
+def test_the_interval_matches_the_normal_approximation():
+    cers = [0.1, 0.3, 0.5, 0.7, 0.9]
+    summary = report.summarise(
+        [record(instance_id=f"i{n}", cer=c) for n, c in enumerate(cers)]
+    )
+    expected = report.Z95 * statistics.stdev(cers) / len(cers) ** 0.5
+    assert summary.cer_ci95 == pytest.approx(expected)
+
+
+def test_refusals_do_not_widen_the_interval():
+    """They carry no CER at all, so they must not enter the dispersion either."""
+    scored = [record(instance_id=f"i{n}", cer=0.4) for n in range(4)]
+    with_refusal = [*scored, record(instance_id="r", cer=None, refused=True)]
+    assert report.summarise(with_refusal).cer_ci95 == pytest.approx(
+        report.summarise(scored).cer_ci95
+    )
+
+
+def test_overlapping_intervals_are_called_out_in_words():
+    """A reader who sees a bare '+4.2%' will quote it. The prose is what stops that."""
+    # Means 5 points apart, but each arm is spread across 30 points -- the shape a small
+    # noisy sample actually takes, where the gap is well inside the noise.
+    cot = [0.30, 0.50, 0.40, 0.60]
+    tool = [0.35, 0.55, 0.45, 0.65]
+    records = [
+        record(instance_id=f"i{n}", paradigm=p, cer=c)
+        for n in range(4)
+        for p, c in (("cot", cot[n]), ("tool_use", tool[n]))
+    ]
+    comparison = report.compare(records, "paradigm", "cot", "tool_use")
+    rendered = report.render_comparison(comparison)
+
+    assert comparison.cer_gap == pytest.approx(-0.05)   # a gap is visible
+    assert "intervals overlap" in rendered              # and it is not a finding
+    assert "not a distinguishable gap" in rendered
+
+
+def test_clearly_separated_arms_are_not_called_overlapping():
+    records = [
+        record(instance_id=f"i{n}", paradigm=p, cer=c)
+        for n in range(4)
+        for p, c in (("cot", 0.90 + n * 0.001), ("tool_use", 0.10 + n * 0.001))
+    ]
+    rendered = report.render_comparison(
+        report.compare(records, "paradigm", "cot", "tool_use")
+    )
+    assert "intervals separate" in rendered
+
+
+def test_the_breakdown_table_carries_the_interval_column():
+    rendered = report.render_breakdown(
+        [record(instance_id=f"i{n}", cer=0.3 + n * 0.05) for n in range(4)], "config"
+    )
+    assert "95% CI" in rendered
+    assert "+/-" in rendered

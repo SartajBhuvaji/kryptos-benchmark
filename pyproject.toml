@@ -20,6 +20,14 @@ eval = [
     "datasets>=2.19",
     "rapidfuzz>=3.9",
 ]
+# Evaluating models behind an OpenAI-compatible endpoint -- OpenAI itself, vLLM,
+# OpenRouter, Together, a local runtime. Separate from `eval` because neither SDK is
+# needed to run the other's provider.
+openai = [
+    "openai>=1.40",
+    "datasets>=2.19",
+    "rapidfuzz>=3.9",
+]
 
 [tool.setuptools.packages.find]
 where = ["src"]

@@ -108,6 +108,8 @@ class Args:
             concurrency=1,
             resume=False,
             max_spend=None,
+            provider="anthropic",
+            no_reasoning_effort=False,
         )
         defaults.update(kwargs)
         for key, value in defaults.items():

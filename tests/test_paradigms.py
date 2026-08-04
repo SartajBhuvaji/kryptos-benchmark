@@ -451,8 +451,17 @@ def test_the_run_axes_are_persisted(quagmire):
     interpreted after the fact."""
     client = FakeClient(message([answer_block()]))
     attempt = paradigms.solve(
-        client, quagmire, model="m", tier=3, paradigm="tool_use", delimited=True
+        client,
+        quagmire,
+        model="m",
+        tier=3,
+        paradigm="tool_use",
+        delimited=True,
+        effort="xhigh",
     )
+    # Solved and scored at the same effort deliberately: since v3 the persisted effort is
+    # the one the backend *sent*, so passing a different level here would be asserting
+    # that the record can disagree with the request.
     result = results.score(quagmire, attempt, delimited=True, effort="xhigh")
 
     assert (result.tier, result.paradigm, result.delimited, result.effort) == (
