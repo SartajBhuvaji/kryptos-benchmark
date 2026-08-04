@@ -44,6 +44,7 @@ from __future__ import annotations
 
 import json
 import os
+import re
 from dataclasses import dataclass, field
 from typing import Any
 
@@ -113,7 +114,33 @@ class Attempt:
 
     @property
     def fell_back(self) -> bool:
-        return bool(self.model) and self.model != self.requested_model
+        return substituted(self.model, self.requested_model)
+
+
+#: A dated snapshot of an alias -- ``claude-sonnet-5`` served as
+#: ``claude-sonnet-5-20260115``. Exactly eight digits, deliberately: a version bump
+#: carries one or two, and ``claude-sonnet-5-1`` would be a *different* model rather than
+#: the same one dated. Matching loosely there would hide the substitution this exists to
+#: catch.
+SNAPSHOT_SUFFIX = re.compile(r"-\d{8}$")
+
+
+def substituted(served: str, asked: str) -> bool:
+    """Whether a model other than the one requested answered.
+
+    Not a string comparison, because the API resolves an alias to the snapshot behind it
+    and reports *that* back: ask for ``claude-sonnet-5`` and the answer says
+    ``claude-sonnet-5-20260115``. Comparing those directly would flag a fallback on every
+    record of every ordinary run, and a warning that fires on all of them is one nobody
+    reads -- which is exactly when a real fallback goes past unnoticed.
+
+    The suffix is stripped only from the served side. Asking for a specific snapshot and
+    being given a different one *is* a substitution: the caller named a set of weights and
+    did not get them.
+    """
+    if not served or served == asked:
+        return False
+    return SNAPSHOT_SUFFIX.sub("", served) != asked
 
 
 def client_for(provider: str, *, base_url: str | None = None, api_key: str | None = None):

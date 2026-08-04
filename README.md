@@ -18,7 +18,7 @@ Dataset: [`sartajbhuvaji/kryptos-bench`](https://huggingface.co/datasets/sartajb
 
 ## Status
 
-The benchmark is complete and runnable end to end — 676 tests, five published configs, both
+The benchmark is complete and runnable end to end — 689 tests, five published configs, both
 paradigms, two providers, and every comparison available from one command.
 
 **No model has been run against it yet.** The harness measures; it has not yet measured.
@@ -307,7 +307,7 @@ src/kryptos/algorithms/isomorph/       corpus, generators, schema and builder
 src/kryptos/scoring/                   CER, cribs, IoC, quadgram fitness, tier table
 src/kryptos/eval/                      tiers, paradigms, providers, runner, report
 src/kryptos/huggingface/               Hub publishing, with preflight checks
-tests/                                 verification — 676 tests
+tests/                                 verification — 689 tests
 docs/                                  design documents
 ```
 
@@ -324,7 +324,7 @@ python src/kryptos/dataset/example.py --passages K1 K3
 
 ```bash
 pip install -e ".[dev]"
-python -m pytest                                          # 676 tests, none call an API
+python -m pytest                                          # 689 tests, none call an API
 
 python -m kryptos.algorithms.baseline.build --check       # artifact matches source
 python -m kryptos.algorithms.isomorph.build --check

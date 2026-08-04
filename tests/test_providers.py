@@ -410,3 +410,54 @@ def test_malformed_price_specs_are_rejected(spec):
 def test_negative_prices_are_rejected(prices):
     with pytest.raises(ValueError, match="negative"):
         reporting.register_price("weird", -1, 2)
+
+
+# --- which model answered ---------------------------------------------------------
+
+
+@pytest.mark.parametrize(
+    "served,asked",
+    [
+        ("claude-sonnet-5-20260115", "claude-sonnet-5"),   # the everyday case
+        ("claude-opus-5-20260101", "claude-opus-5"),
+        ("claude-opus-5", "claude-opus-5"),                # already resolved
+        ("gpt-5", "gpt-5"),                                # no snapshot convention
+        ("", "claude-opus-5"),                             # never reported at all
+    ],
+)
+def test_the_snapshot_behind_an_alias_is_the_model_that_was_asked_for(served, asked):
+    """The API resolves an alias to a dated snapshot and reports that back. Treating the
+    two as different models would mark every record of every ordinary run as a fallback."""
+    assert providers.substituted(served, asked) is False
+
+
+@pytest.mark.parametrize(
+    "served,asked",
+    [
+        ("claude-opus-4-8", "claude-opus-5"),              # a different model
+        ("claude-opus-4-8-20260115", "claude-opus-5"),     # dated, still different
+        ("claude-sonnet-5-1", "claude-sonnet-5"),          # a version bump, not a date
+        ("claude-sonnet-5-2026011", "claude-sonnet-5"),    # seven digits is not a date
+        ("claude-sonnet-5-20260301", "claude-sonnet-5-20260115"),  # snapshot was named
+    ],
+)
+def test_a_different_model_answering_is_reported(served, asked):
+    assert providers.substituted(served, asked) is True
+
+
+def test_the_attempt_and_the_report_apply_one_rule(row):
+    """Two copies of this comparison drifted apart once. The property and the reporting
+    function must not be able to disagree about the same pair of names again."""
+    from dataclasses import asdict
+
+    from kryptos.eval import results
+
+    for served, asked in [
+        ("claude-sonnet-5-20260115", "claude-sonnet-5"),
+        ("claude-opus-4-8", "claude-opus-5"),
+    ]:
+        attempt = providers.Attempt(
+            instance_id="x", tier=2, paradigm="cot", model=served, requested_model=asked
+        )
+        record = asdict(results.score(row, attempt))
+        assert attempt.fell_back == reporting.fell_back(record)

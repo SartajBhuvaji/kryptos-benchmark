@@ -39,7 +39,7 @@ that turn them into cipher instances, and 200 published instances across four si
 configs — every one round-tripping through the Phase 1 ciphers on its own published
 parameters, the four tier framings that pose them, both evaluation paradigms behind one
 runner, the reporting layer that turns runs into comparisons, and the runner controls
-that make a long run resumable and cost-bounded. 676 tests.
+that make a long run resumable and cost-bounded. 689 tests.
 
 **The roadmap is complete through Phase 5.** Every measurement the project was built for is runnable with
 all four axes independently selectable — baseline vs isomorph, tier by tier,
