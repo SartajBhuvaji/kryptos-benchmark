@@ -380,6 +380,22 @@ def price_for(model: str) -> tuple[float, float] | None:
     return PRICES[max(candidates, key=len)] if candidates else None
 
 
+def usd(record: dict) -> float | None:
+    """What one record cost, or ``None`` if its model is unpriced.
+
+    Billed against the model that *answered*, matching :func:`cost`. ``None`` propagates
+    rather than becoming zero, so a caller enforcing a spend ceiling can tell the
+    difference between "this was free" and "I cannot price this" -- they need opposite
+    responses, and conflating them is how a budget cap silently stops capping.
+    """
+    rate = price_for(str(record.get("model", "")))
+    if rate is None:
+        return None
+    return (
+        record.get("input_tokens", 0) * rate[0] + record.get("output_tokens", 0) * rate[1]
+    ) / PER_MILLION
+
+
 def cost(records: Sequence[dict]) -> list[Cost]:
     """Token and dollar accounting, by the model that *answered*.
 
