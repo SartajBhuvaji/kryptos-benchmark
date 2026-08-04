@@ -48,6 +48,7 @@ from typing import Any, Iterable, Sequence
 if __package__ in (None, ""):  # allow running the file directly
     sys.path.insert(0, str(pathlib.Path(__file__).resolve().parents[2]))
 
+from kryptos.eval import providers
 from kryptos.eval.results import RESULTS_VERSION
 
 #: The axes that identify one measurement. Two records agreeing on all of these are the
@@ -161,9 +162,14 @@ def requested(record: dict) -> str:
 
 
 def fell_back(record: dict) -> bool:
-    """Whether another model answered for the one that was asked."""
-    served = str(record.get("model") or "")
-    return bool(served) and served != requested(record)
+    """Whether another model answered for the one that was asked.
+
+    Delegates to :func:`kryptos.eval.providers.substituted` rather than comparing the two
+    strings here, so the runner and the report cannot disagree about what a fallback is.
+    They did: an exact comparison counted the dated snapshot behind an alias as a
+    substitution, which fired the warning on every record of every run.
+    """
+    return providers.substituted(str(record.get("model") or ""), requested(record))
 
 
 def family(record: dict) -> str:

@@ -267,6 +267,42 @@ def test_a_run_with_no_fallback_reports_none():
     assert report.fell_back(record()) is False
 
 
+def test_the_dated_snapshot_behind_an_alias_is_not_a_fallback():
+    """The shape every real run produces, and the one that broke this.
+
+    Asking for an alias gets an answer stamped with the snapshot behind it. Comparing the
+    two strings directly made every record of every ordinary run report a fallback, which
+    put the warning on screen constantly -- and a warning that always fires is one nobody
+    reads, which is precisely when a genuine substitution slips past.
+    """
+    served = record(model="claude-sonnet-5-20260115", requested_model="claude-sonnet-5")
+    assert report.fell_back(served) is False
+    assert report.summarise([served]).fell_back == 0
+    assert "WARNING" not in report._preamble([served], 0)
+
+    # Still grouped and billed the way the two-field split intends.
+    assert report.requested(served) == "claude-sonnet-5"
+    assert report.summarise([served]).models == {"claude-sonnet-5-20260115"}
+
+
+def test_a_substitution_is_still_caught_around_the_snapshot_rule():
+    """The loosening must not swallow the case it exists to report."""
+    cases = [
+        # A different model entirely, dated or not.
+        ("claude-opus-4-8", "claude-opus-5"),
+        ("claude-opus-4-8-20260115", "claude-opus-5"),
+        # A version bump is a different model, not a dated one -- the digit count is
+        # what separates them, so this must not be mistaken for a snapshot suffix.
+        ("claude-sonnet-5-1", "claude-sonnet-5"),
+        # A specific snapshot was named and a different one answered.
+        ("claude-sonnet-5-20260301", "claude-sonnet-5-20260115"),
+    ]
+    for served, asked in cases:
+        assert report.fell_back(
+            record(model=served, requested_model=asked)
+        ) is True, f"{served} answering for {asked} is a substitution"
+
+
 def test_the_preamble_warns_when_a_fallback_served_a_result():
     text = report._preamble(
         [record(model="claude-opus-4-8", requested_model="claude-opus-5")], 0
