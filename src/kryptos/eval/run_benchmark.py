@@ -46,7 +46,7 @@ from dataclasses import asdict, dataclass
 if __package__ in (None, ""):  # allow running the file directly
     sys.path.insert(0, str(pathlib.Path(__file__).resolve().parents[2]))
 
-from kryptos.eval import paradigms, report as reporting, results, tiers
+from kryptos.eval import paradigms, providers, report as reporting, results, tiers
 
 DATASET = "sartajbhuvaji/kryptos-bench"
 SPLIT = "test"
@@ -175,6 +175,10 @@ class Budget:
 
 def execute(client, job: Job, args) -> results.Result:
     """Run one job and score it. Called on a worker thread; touches no shared state."""
+    options = {}
+    if args.provider == "openai":
+        options["reasoning_effort"] = not args.no_reasoning_effort
+
     attempt = paradigms.solve(
         client,
         job.row,
@@ -184,6 +188,7 @@ def execute(client, job: Job, args) -> results.Result:
         effort=args.effort,
         delimited=args.delimited,
         few_shot=not args.no_few_shot,
+        **options,
     )
     return results.score(
         job.row,
@@ -362,6 +367,43 @@ def build_parser() -> argparse.ArgumentParser:
         help="omit tool-use transcripts from the persisted results",
     )
     ap.add_argument(
+        "--provider",
+        default="anthropic",
+        choices=list(providers.PROVIDERS),
+        help="which API to call; openai covers any server speaking that wire format",
+    )
+    ap.add_argument(
+        "--base-url",
+        metavar="URL",
+        help="override the API endpoint (vLLM, OpenRouter, Together, a local runtime)",
+    )
+    ap.add_argument(
+        "--api-key-env",
+        metavar="VAR",
+        help="environment variable holding the key (default ANTHROPIC_API_KEY / "
+        "OPENAI_API_KEY). The key itself is never a command-line argument",
+    )
+    ap.add_argument(
+        "--provider-param",
+        action="append",
+        metavar="K=V",
+        help="extra raw request field, repeatable, JSON-decoded "
+        "(e.g. max_completion_tokens=32000 for OpenAI reasoning models)",
+    )
+    ap.add_argument(
+        "--no-reasoning-effort",
+        action="store_true",
+        help="OpenAI only: omit reasoning_effort for servers that reject it; the "
+        "recorded effort then reads 'unset' rather than claiming a level",
+    )
+    ap.add_argument(
+        "--price",
+        action="append",
+        metavar="MODEL=IN/OUT",
+        help="USD per million tokens for a model with no published rate on file, "
+        "repeatable (e.g. gpt-5=1.25/10). Without it a non-Claude run is unpriced",
+    )
+    ap.add_argument(
         "--resume",
         action="store_true",
         help="skip instances already answered in the output file; refusals and errors "
@@ -387,24 +429,29 @@ def build_parser() -> argparse.ArgumentParser:
 def main(argv: list[str] | None = None) -> int:
     args = build_parser().parse_args(argv)
 
+    sdk = {"anthropic": "anthropic", "openai": "openai"}[args.provider]
     try:
-        import anthropic  # noqa: F401
+        __import__(sdk)
         import datasets  # noqa: F401
     except ImportError as exc:
         print(
-            f"missing dependency: {exc.name}\n  pip install anthropic datasets rapidfuzz",
+            f"missing dependency: {exc.name}\n  pip install {sdk} datasets rapidfuzz",
             file=sys.stderr,
         )
         return 1
 
-    import anthropic
+    for spec in args.price or []:
+        reporting.register_price(*reporting.parse_price(spec))
 
-    if not os.environ.get("ANTHROPIC_API_KEY"):
-        # Not fatal: the SDK also resolves an `ant auth login` profile.
-        print(
-            "note: ANTHROPIC_API_KEY unset; falling back to a stored auth profile",
-            file=sys.stderr,
-        )
+    key = providers.key_from_env(args.provider, args.api_key_env)
+    if not key:
+        named = args.api_key_env or providers.DEFAULT_KEY_ENV[args.provider]
+        if args.provider == "anthropic":
+            # Not fatal: the SDK also resolves an `ant auth login` profile.
+            print(f"note: {named} unset; falling back to a stored auth profile",
+                  file=sys.stderr)
+        else:
+            raise SystemExit(f"{named} is unset, and {args.provider} needs a key")
 
     if args.concurrency < 1:
         raise SystemExit("--concurrency must be at least 1")
@@ -424,9 +471,19 @@ def main(argv: list[str] | None = None) -> int:
             print("nothing left to run", file=sys.stderr)
             return 0
 
-    client = anthropic.Anthropic()
+    backend = providers.backend_for(
+        args.provider,
+        providers.client_for(args.provider, base_url=args.base_url, api_key=key),
+        extra=providers.parse_params(args.provider_param),
+    )
+    if not backend.supports(args.paradigm):
+        raise SystemExit(
+            f"the {args.paradigm!r} paradigm is not available on {args.provider!r}; "
+            f"it supports {list(providers.SUPPORTED_PARADIGMS[args.provider])}"
+        )
+
     budget = Budget(args.max_spend)
-    scored = run(client, jobs, args, budget)
+    scored = run(backend, jobs, args, budget)
 
     # Grouped by the model requested, not the one that answered: a fallback belongs in
     # the column of the model it was asked of, or it silently vanishes from the run.

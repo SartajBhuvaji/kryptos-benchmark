@@ -31,7 +31,13 @@ from kryptos.scoring import character_error_rate, similarity_ratio, tier as tier
 #: v2 split ``model`` into the model requested and the model that answered. In v1 a
 #: server-side fallback wrote the *substitute* model into the only model field, so a
 #: multi-model comparison would have filed its answer under whichever model refused.
-RESULTS_VERSION = 2
+#:
+#: v3 added ``provider`` and changed what ``effort`` means: it is now the effort actually
+#: *sent*, not the level the caller asked for. The two diverge on OpenAI-compatible
+#: endpoints, where the ladder collapses to three levels and the field can be dropped
+#: entirely -- so a v2 reader would take a run made with no effort setting at all as a
+#: run at ``high``.
+RESULTS_VERSION = 3
 
 
 @dataclass
@@ -46,10 +52,13 @@ class Result:
     #: The model that answered -- what was billed, and what a cost table should use.
     model: str
     delimited: bool
+    #: The reasoning effort actually sent, or ``"unset"`` where none was.
     effort: str
     #: The model this was requested as -- the experimental axis, and what a per-model
     #: breakdown must group by. Equal to ``model`` unless a fallback served the request.
     requested_model: str = ""
+    #: Which transport ran this -- ``anthropic`` or ``openai``.
+    provider: str = "anthropic"
     seed: int | None = None
 
     # --- what came back ---
@@ -105,8 +114,12 @@ def score(
         paradigm=attempt.paradigm,
         model=attempt.model,
         delimited=delimited,
-        effort=effort,
+        # What the backend actually sent, falling back to what was asked only when the
+        # backend did not say. Recording the requested level regardless would describe a
+        # run by a knob that was never turned.
+        effort=attempt.effort or effort,
         requested_model=attempt.requested_model or attempt.model,
+        provider=attempt.provider,
         seed=row.get("seed"),
         cipher=attempt.cipher,
         key=attempt.key,

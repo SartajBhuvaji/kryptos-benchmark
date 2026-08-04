@@ -24,8 +24,8 @@ not during.
 | 3 — Isomorph generation | 18 / 18 ✅ | PR #7–#9. 200 instances live on the Hub |
 | 4 — Tiers and paradigms | 13 / 13 ✅ | PR #10, #11. Both paradigms runnable |
 | 5 — Reporting | 7 / 7 ✅ | PR #12. Every comparison is one command |
-| 6 — Running it | 1 / 4 | Runner controls in; the pilot is next |
-| **Total** | **78 / 81** | |
+| 6 — Running it | 4 / 7 | Controls, providers and the skill in; the pilot is next |
+| **Total** | **81 / 84** | |
 
 **Landed so far:** the baseline dataset and its card, the Hub publishing path with
 preflight checks, the benchmark runner with CER/crib scoring and the `--delimited`
@@ -414,6 +414,10 @@ it starts with the two risks below that are still estimates rather than data: th
 thresholds are uncalibrated, and the cost of the full matrix is a guess.
 
 - [x] Runner controls for a long run — `--resume`, `--max-spend`, `--concurrency`
+- [x] A second provider — any OpenAI-compatible endpoint behind `--provider openai`
+      and `--base-url`, sharing one prompt builder and one answer parser with Claude
+- [x] Confidence intervals on every reported mean, and overlap stated in words
+- [x] An agent skill that drives the whole flow — `.claude/skills/kryptos-benchmark/`
 - [ ] A sized pilot: one model, `--limit 5`, all five configs, to get real cost per
       instance and a first look at the score distribution
 - [ ] Calibrate the tier thresholds against that distribution, replacing the asserted
@@ -440,6 +444,34 @@ separately would let the two drift, and a drifted resume either re-runs everythi
 skips work it never did. And `--max-spend` is soft: dispatch stops when the ceiling is
 crossed, but work already in flight finishes, so a parallel run can exceed it by up to
 `--concurrency` instances.
+
+### One prompt, two APIs
+
+A second vendor is the easiest way to break the benchmark's central claim without noticing,
+because nothing errors when two models are asked subtly different questions. The split is
+therefore narrow: `tiers` builds both prompts, `paradigms` decides what a paradigm means,
+and `providers` does nothing but carry two strings to an API. A test asserts the two
+backends receive **byte-identical** system and user text, and both share one answer parser
+— a per-provider parser could be more forgiving of one vendor's output than another's, and
+that difference would read as a capability gap.
+
+Two limits are enforced rather than papered over. **Tool use raises on OpenAI** instead of
+silently running chain of thought, because a mislabelled run would land as a finding that
+the tool-use gap had closed. And **effort recorded is effort sent**: the OpenAI ladder
+collapses `xhigh`/`max` to `high` and `--no-reasoning-effort` drops the field entirely, so
+the record says `unset` rather than echoing a level nothing was told about. Results schema
+moved to v3 for that meaning change.
+
+Non-Claude models are **unpriced**, which makes the cost table say so and `--max-spend`
+refuse to run. `--price MODEL=IN/OUT` supplies the missing rate; a rate nobody typed is a
+rate nobody checked.
+
+### Reporting what other benchmarks report
+
+Means now carry a 95% confidence interval, and every paired comparison states in words
+whether the two intervals overlap. The headline result is a *difference* between two means,
+and at pilot sample sizes a few points of gap is almost always noise — a bare `+4.2%` gets
+quoted, `intervals overlap -- not a distinguishable gap` does not.
 
 ### Haiku 4.5 will not run on this harness
 

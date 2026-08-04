@@ -40,6 +40,7 @@ import argparse
 import glob
 import pathlib
 import sys
+import statistics
 from collections import defaultdict
 from dataclasses import dataclass, field
 from typing import Any, Iterable, Sequence
@@ -82,6 +83,32 @@ PRICES: dict[str, tuple[float, float]] = {
 }
 
 PER_MILLION = 1_000_000
+
+
+def register_price(model: str, input_usd: float, output_usd: float) -> None:
+    """Add or override a model's rates, in USD per million tokens.
+
+    The table above only knows Anthropic's published prices. Every other model — OpenAI,
+    or whatever is behind a ``--base-url`` — is unpriced, and unpriced means a cost table
+    that reports nothing and a ``--max-spend`` ceiling that refuses to run rather than
+    guess. This is how a caller supplies the missing number, and asserting it explicitly
+    is the point: a rate nobody typed is a rate nobody checked.
+    """
+    if input_usd < 0 or output_usd < 0:
+        raise ValueError(f"prices cannot be negative: {model} {input_usd}/{output_usd}")
+    PRICES[model] = (input_usd, output_usd)
+
+
+def parse_price(spec: str) -> tuple[str, float, float]:
+    """Parse ``MODEL=INPUT/OUTPUT`` — e.g. ``gpt-5=1.25/10``."""
+    model, _, rates = spec.partition("=")
+    numerator, _, denominator = rates.partition("/")
+    if not model or not numerator or not denominator:
+        raise ValueError(f"--price needs MODEL=INPUT/OUTPUT, got {spec!r}")
+    try:
+        return model.strip(), float(numerator), float(denominator)
+    except ValueError:
+        raise ValueError(f"--price rates must be numbers, got {rates!r}") from None
 
 
 # --- loading ----------------------------------------------------------------------
@@ -169,6 +196,9 @@ class Summary:
     passed: int = 0
     mean_cer: float | None = None
     mean_similarity: float | None = None
+    #: Half-width of the 95% confidence interval on ``mean_cer``. ``None`` below two
+    #: scoreable instances, where there is no dispersion to estimate.
+    cer_ci95: float | None = None
 
     # --- rows without one (tier 4) ---
     frontier: int = 0
@@ -209,6 +239,7 @@ def summarise(records: Sequence[dict]) -> Summary:
         passed=sum(1 for r in records if r.get("passed") is True),
         mean_cer=_mean(cers),
         mean_similarity=_mean(sims),
+        cer_ci95=_ci95(cers),
         frontier=len(placed),
         mean_cribs_placed=_mean(placed),
         cribs_total=max(totals) if totals else 0,
@@ -248,6 +279,25 @@ def _mean(values: Sequence[float]) -> float | None:
     return sum(values) / len(values) if values else None
 
 
+#: Normal approximation. At the sample sizes a pilot run produces this is generous, but
+#: the point is not precision -- it is that a mean printed without a spread invites being
+#: read as exact, and at n=5 it is nothing of the sort.
+Z95 = 1.96
+
+
+def _ci95(values: Sequence[float]) -> float | None:
+    """Half-width of the 95% confidence interval on the mean.
+
+    Every serious benchmark reports dispersion beside its headline number, and this one
+    has a specific reason to: the whole result is a *difference* between two means. A gap
+    of a few points between arms whose intervals overlap completely is not a finding, and
+    without this column there is nothing on the page to say so.
+    """
+    if len(values) < 2:
+        return None
+    return Z95 * statistics.stdev(values) / len(values) ** 0.5
+
+
 # --- comparisons ------------------------------------------------------------------
 
 
@@ -269,6 +319,8 @@ class Comparison:
     right_solved: int = 0
     left_output_tokens: int = 0
     right_output_tokens: int = 0
+    left_ci95: float | None = None
+    right_ci95: float | None = None
 
     @property
     def cer_gap(self) -> float | None:
@@ -313,6 +365,8 @@ def compare(records: Sequence[dict], axis: str, left, right) -> Comparison:
         right_solved=b.solved,
         left_output_tokens=a.output_tokens,
         right_output_tokens=b.output_tokens,
+        left_ci95=a.cer_ci95,
+        right_ci95=b.cer_ci95,
     )
 
 
@@ -341,6 +395,8 @@ def headline(records: Sequence[dict], model: str) -> Comparison:
         right_solved=b.solved,
         left_output_tokens=a.output_tokens,
         right_output_tokens=b.output_tokens,
+        left_ci95=a.cer_ci95,
+        right_ci95=b.cer_ci95,
     )
 
 
@@ -436,12 +492,12 @@ def render_breakdown(records: Sequence[dict], *keys: str) -> str:
     # produced two visibly identical rows carrying different numbers, which is a worse
     # failure than a wide table.
     pad = max([len(v) for v in labels.values()] + [len("group")])
-    rule = "-" * (pad + 43)
+    rule = "-" * (pad + 54)
 
     lines = [_heading("by " + " / ".join(keys))]
     lines.append(
-        f"{'group':<{pad}} {'n':>4} {'CER':>8} {'solved':>7} {'passed':>7} "
-        f"{'cribs':>7} {'fit':>7}"
+        f"{'group':<{pad}} {'n':>4} {'CER':>8} {'95% CI':>10} {'solved':>7} "
+        f"{'passed':>7} {'cribs':>7} {'fit':>7}"
     )
     lines.append(rule)
     for key, s in rows:
@@ -455,9 +511,10 @@ def render_breakdown(records: Sequence[dict], *keys: str) -> str:
             else "--"
         )
         fit = f"{s.mean_fitness:.2f}" if s.mean_fitness is not None else "--"
+        ci = f"+/-{s.cer_ci95:.1%}" if s.cer_ci95 is not None else "--"
         lines.append(
-            f"{label:<{pad}} {s.instances:>4} {cer:>8} {solved:>7} {passed:>7} "
-            f"{cribs:>7} {fit:>7}"
+            f"{label:<{pad}} {s.instances:>4} {cer:>8} {ci:>10} {solved:>7} "
+            f"{passed:>7} {cribs:>7} {fit:>7}"
         )
         if s.refused or s.errored:
             lines.append(
@@ -486,6 +543,19 @@ def _label(value) -> str:
     return str(value)
 
 
+def _overlap(c: Comparison) -> bool:
+    """Whether the two arms' confidence intervals overlap.
+
+    Printed in words beside every gap. A reader who sees "+4.2%" without this will quote
+    it; a reader who sees that the intervals overlap completely will not. At pilot sample
+    sizes that is almost always the honest reading.
+    """
+    return (
+        c.left_cer - c.left_ci95 <= c.right_cer + c.right_ci95
+        and c.right_cer - c.right_ci95 <= c.left_cer + c.left_ci95
+    )
+
+
 def render_comparison(c: Comparison) -> str:
     lines = [f"  {_label(c.left)} vs {_label(c.right)}"]
     if c.paired:
@@ -501,6 +571,15 @@ def render_comparison(c: Comparison) -> str:
         f"    mean CER   {c.left_cer:>7.1%}  vs {c.right_cer:>7.1%}   "
         f"gap {c.cer_gap:+.1%}"
     )
+    if c.left_ci95 is not None and c.right_ci95 is not None:
+        lines.append(
+            f"    95% CI     +/-{c.left_ci95:>5.1%}  vs +/-{c.right_ci95:>5.1%}   "
+            + (
+                "intervals overlap -- not a distinguishable gap"
+                if _overlap(c)
+                else "intervals separate"
+            )
+        )
     lines.append(
         f"    solved     {c.left_solved:>7}  vs {c.right_solved:>7}   "
         f"output tokens {c.left_output_tokens:,} vs {c.right_output_tokens:,}"
