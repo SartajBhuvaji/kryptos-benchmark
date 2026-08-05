@@ -109,6 +109,7 @@ _EVERY_MECHANISM = [
     ("adfgvx", {"columnar_width": 8}),
     ("rail_fence", {}),
     ("columnar", {"width": 8}),
+    ("route", {"width_choices": 8}),
 ]
 
 

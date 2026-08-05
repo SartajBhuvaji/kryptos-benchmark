@@ -1,4 +1,4 @@
-"""The classical cipher suite -- fifteen mechanisms across four measured difficulty bands.
+"""The classical cipher suite -- seventeen mechanisms across four measured difficulty bands.
 
 Sibling to :mod:`kryptos.algorithms.isomorph`, not a replacement for it. The isomorphs
 carry the contamination-resistance claim and it rests on a famous artifact; this suite is
