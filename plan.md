@@ -25,7 +25,8 @@ not during.
 | 4 — Tiers and paradigms | 13 / 13 ✅ | PR #10, #11. Both paradigms runnable |
 | 5 — Reporting | 7 / 7 ✅ | PR #12. Every comparison is one command |
 | 6 — Running it | 4 / 7 | Controls, providers and the skill in; the pilot is next |
-| **Total** | **81 / 84** | |
+| 7 — Classical cipher suite | 0 / 18 | Planned. Sibling configs; three gates open |
+| **Total** | **81 / 102** | |
 
 **Landed so far:** the baseline dataset and its card, the Hub publishing path with
 preflight checks, the benchmark runner with CER/crib scoring and the `--delimited`
@@ -52,12 +53,13 @@ below from open questions into data: the tier thresholds are still asserted rath
 calibrated, and the cost of the full matrix is still an estimate. Size a run with
 `--limit` and `--max-spend` before committing to it.
 
-**No open decision gates.** All five are closed, each recorded in full in the section it
+**All five original decision gates are closed**, each recorded in full in the section it
 blocked: K3's route geometry (1.2) — the document's stated width of 86 is an error and the
 real route was recovered by exhaustive search; plaintext sourcing and seeding (3.1) —
 recombined public-domain prose, with both a seeded snapshot and a fresh-seed path sharing
 one code path; Tier 4 scoring and the tool-use sandbox (4.1) — cribs plus fitness with no
-pass mark, and server-side code execution first.
+pass mark, and server-side code execution first. **Phase 7 opens three more** (7.1), all
+of them blocking its first line of code and none of them blocking Phase 6.
 
 ---
 
@@ -488,6 +490,163 @@ fit it (there is no `pause_turn` resume loop). Batch would serve chain-of-though
 
 ---
 
+## Phase 7 — Classical cipher suite
+
+Target: `src/kryptos/algorithms/suite/`
+
+Everything above measures two cipher families through four framings. That answers *can a
+model break Quagmire III*, and it answers it as a cliff: a model either has the mechanism
+or it does not. What it cannot produce is a **difficulty curve** — the ordering of what a
+model breaks, what it half-breaks, and where it stops — because there is nothing between
+Quagmire and K4 to stand on.
+
+This phase adds that curve as **sibling configs, not a replacement**. The Kryptos configs
+carry the contamination-resistance claim, which rests on isomorphs of a famous artifact;
+the suite is contamination-free by a different and weaker mechanism, namely that a
+randomly-keyed Playfair over recombined prose has never existed before. Two different
+claims. They are reported separately and never averaged into one number — a blended score
+would inherit the weaker of the two guarantees while wearing the name of the stronger.
+
+Phase 3's corpus, Phase 2's scoring and Phase 4–6's harness are reused unchanged. None of
+`kryptos.scoring` knows what Kryptos is, and `results.score(row, attempt)` is already
+row-driven, so this phase adds ciphers and a difficulty pipeline, not a second harness.
+
+### 7.1 Decision gates 🚩 three open
+
+- [ ] 🚩 **How do 15 ciphers share one schema?** The rule that split `isomorph_composite`
+      from `isomorph_nulls` — no config may publish a column that is null on most of its
+      rows — does not survive fifteen ciphers in four difficulty configs. A Playfair
+      square, a Hill matrix and a rail-fence depth have no common shape.
+      *Proposed:* one `parameters` list-of-struct field, `[{name, value}]`, both strings,
+      uniform across every cipher and empty for none. Declared as a plain Python list, not
+      `Sequence({...})`, which inverts a struct into a struct-of-lists and fails the cast.
+      `solution` prose stays machine-generated from those parameters, so the readable path
+      is unchanged
+- [ ] 🚩 **What defines a difficulty band?** *Proposed:* solver crack rate at a fixed
+      compute budget, measured per instance, with unicity distance as a separate validity
+      gate. See below — the two do different jobs and conflating them is the failure mode
+- [ ] 🚩 **Which 15 mechanisms, and how many instances each?** *Proposed inventory below.*
+      The count that matters is instances per band per mechanism, since that is what sets
+      the width of a per-cipher confidence interval
+
+### Difficulty is measured, not declared
+
+A hand-labelled `brutal` row is indistinguishable from a broken one: both score 0 on every
+model. The band therefore has to come from something computable before any model runs.
+
+**Unicity distance gates validity.** Below `H(K) / D` characters — key entropy over
+English redundancy at roughly 3.2 bits per letter — more than one plaintext decrypts the
+instance consistently, and there is no unique answer to score against. This is a low
+floor, and saying so is the point: simple substitution is log₂(26!) ≈ 88 bits, so
+U ≈ 28 characters; Playfair is log₂(25!) ≈ 84 bits, so U ≈ 26. Every realistic instance
+clears it. It rejects the pathological short ones and ranks nothing.
+
+**Solver crack rate assigns the band.** Run a classical attack against the instance with a
+fixed budget and record whether it recovers the plaintext, over N seeded restarts:
+
+| Band | Criterion |
+|---|---|
+| easy | small enough keyspace to brute-force, or cracked on every restart in under a second |
+| medium | a known statistical attack applies (Kasiski, IC, frequency) and cracks ≥ 90% of restarts |
+| hard | cracks between 10% and 90% of restarts |
+| brutal | cracks < 10%, **and** the instance clears unicity and round-trips |
+
+The `brutal` band is defined so that it can only contain instances that are known to be
+solvable in principle. That is the whole reason for the unicity gate: without it, "no
+solver cracked this" and "this has no answer" are the same observation.
+
+Hill-climbing against the quadgram model in `kryptos.scoring.ngram` is the workhorse
+attack and already exists. What this phase adds is the restart harness around it and the
+per-mechanism attacks — Kasiski and IC for periodic polyalphabetics, brute force where the
+keyspace admits it.
+
+**Difficulty is a property of the instance, not the cipher.** `(mechanism, length, key)`
+determines it jointly: Playfair at 500 characters is a different problem from Playfair at
+90, and a Vigenère whose keyword repeats has a shorter true period than its length
+suggests. A mechanism therefore appears in **several bands**, with length as the primary
+lever. Stamping each cipher with one difficulty would throw away the most informative axis
+in the set.
+
+**What the bands do and do not claim.** They measure *classical cryptanalytic* difficulty.
+Whether that ordering predicts *model* difficulty is an open empirical question, and one
+this suite exists to answer rather than assume — a model may find a rail fence hard for
+tokenization reasons that have nothing to do with its keyspace. The card must say so.
+
+### 7.2 Mechanism inventory
+
+Fifteen classes chosen for mechanistic distinctness, not headcount. Vigenère, Beaufort,
+Variant Beaufort and Gronsfeld are one mechanism reparameterized — a model that breaks one
+breaks all four — so only Vigenère is carried, and the near-variants are worth at most a
+single recognition probe later. Four already exist from Phases 1 and 3 and are reused.
+
+| Class | Mechanism | Expected band(s) |
+|---|---|---|
+| Monoalphabetic | Caesar, Affine, simple substitution, homophonic | easy → brutal |
+| Polyalphabetic | Vigenère ✅, Quagmire III ✅, autokey, running key | medium → brutal |
+| Polygraphic | Playfair, four-square, Hill ✅ | hard |
+| Fractionating | Bifid, trifid, ADFGVX | hard → brutal |
+| Transposition | Rail fence, keyed columnar, route ✅ | easy → hard |
+
+Expected bands are a prior, not an assignment; 7.4 overwrites them with what the solver
+actually measured. Homophonic and running key are the two most likely to land in `brutal`
+for the reason that makes them interesting — both flatten the statistics the standard
+attacks depend on.
+
+### 7.3 Solvability instrumentation
+
+- [ ] `suite/unicity.py` — key entropy per mechanism and the redundancy constant, with the
+      derivation in the docstring rather than a bare number
+- [ ] `suite/solvers/` — hill-climb and simulated-annealing drivers over the existing
+      quadgram model, plus per-mechanism attacks and brute force where the keyspace admits
+- [ ] `suite/difficulty.py` — the restart harness that turns an instance into a crack
+      rate and a band, deterministic given a seed
+- [ ] Solver budget fixed and recorded per instance, not per run. A band measured against
+      a budget nobody wrote down is a band nobody can reproduce
+
+### 7.4 Generators and selection
+
+- [ ] Eleven new ciphers under `algorithms/ciphers/`, same contract as the existing four:
+      `encrypt`/`decrypt` inverse over uppercase, degeneracy hooks for the generator to
+      screen against
+- [ ] Generate a **pool** larger than the published set, sweeping length per mechanism, so
+      the bands are filled by selection rather than by hoping the draw lands evenly
+- [ ] Measure every pooled instance, then select a balanced sample per band
+- [ ] Keys drawn from the corpus vocabulary, as in 3.3 — Kryptos keys on real words, and
+      random letter strings would make the keyword-guessing sub-problem disappear
+
+### 7.5 Verify
+
+- [ ] Every published instance round-trips on its own published `parameters` — the same
+      standard as 3.4, driven by nothing retained from generation
+- [ ] Every instance clears its mechanism's unicity distance
+- [ ] Same seed, byte-identical output, bands included
+- [ ] Band assignment reproduces from the recorded solver budget
+
+### 7.6 Publish
+
+- [ ] Four sibling configs — `suite_easy`, `suite_medium`, `suite_hard`, `suite_brutal` —
+      in the existing Hub repo, reusing `kryptos.huggingface.push` and its two-way
+      preflight
+- [ ] Card sections stating the weaker contamination claim, the solver-measured provenance
+      of every band, and that the ordering is classical rather than model difficulty
+- [ ] Per-row `cipher_name`, `cipher_family`, `difficulty`, `unicity_distance`,
+      `solver_crack_rate`, `solver_budget` — so a reader can re-derive the band
+
+### Sizing this before it is built
+
+The four axes already multiply: 204 instances × 4 tiers × 2 paradigms × 2 presentations is
+roughly 3,300 calls for a full sweep. Adding ~240 suite instances takes that past 7,000,
+and at Sonnet 5's introductory $2/$10 per MTok — assuming 5k in and 3k out per call, both
+**assumptions and not measurements** — a full sweep lands in the low hundreds of dollars.
+Chain of thought with adaptive thinking will exceed 3k output tokens on the hard bands.
+
+So the suite ships with a **default slice**: one tier, one paradigm, raw presentation. The
+full cross stays opt-in and stays behind `--max-spend`. The pilot in Phase 6 still has to
+run first — it is what replaces the two assumptions above with token counts, and no part
+of this phase should be sized against a guess when a measurement is one run away.
+
+---
+
 ## Risks
 
 - ~~**K3's route geometry may not be as documented.**~~ *Realised, then closed.* The
@@ -503,3 +662,11 @@ fit it (there is no `pause_turn` resume loop). Batch would serve chain-of-though
   the first real runs.
 - **Cost.** Tier 4 at high effort × several models × two paradigms × two presentations is
   real API spend. Size it before running the matrix, not after.
+- **The suite's difficulty bands may not order model difficulty.** They are measured
+  against classical attacks, and a model is not a hill-climber. If observed scores come out
+  uncorrelated with the bands, that is a finding worth publishing, not a bug to tune away —
+  but the card has to have promised only what was measured, or the finding reads as a
+  broken dataset instead.
+- **The suite has a weaker contamination guarantee than the isomorphs.** Novel-by-generation
+  is not the same claim as isomorph-of-a-famous-artifact, and a blended headline score would
+  quietly inherit the weaker one. Reported separately, never averaged.
