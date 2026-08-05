@@ -25,8 +25,8 @@ not during.
 | 4 — Tiers and paradigms | 13 / 13 ✅ | PR #10, #11. Both paradigms runnable |
 | 5 — Reporting | 7 / 7 ✅ | PR #12. Every comparison is one command |
 | 6 — Running it | 4 / 7 | Controls, providers and the skill in; the pilot is next |
-| 7 — Classical cipher suite | 0 / 18 | Planned. Sibling configs; three gates open |
-| **Total** | **81 / 102** | |
+| 7 — Classical cipher suite | 4 / 18 | Gates closed. Unicity gate in; ciphers next |
+| **Total** | **85 / 102** | |
 
 **Landed so far:** the baseline dataset and its card, the Hub publishing path with
 preflight checks, the benchmark runner with CER/crib scoring and the `--delimited`
@@ -40,7 +40,9 @@ that turn them into cipher instances, and 200 published instances across four si
 configs — every one round-tripping through the Phase 1 ciphers on its own published
 parameters, the four tier framings that pose them, both evaluation paradigms behind one
 runner, the reporting layer that turns runs into comparisons, and the runner controls
-that make a long run resumable and cost-bounded. 689 tests.
+that make a long run resumable and cost-bounded. Phase 7 has started at the bottom: the
+unicity gate that decides whether an instance has a unique answer at all, covering all
+sixteen registered mechanisms. 727 tests.
 
 **The roadmap is complete through Phase 5.** Every measurement the project was built for is runnable with
 all four axes independently selectable — baseline vs isomorph, tier by tier,
@@ -58,8 +60,10 @@ blocked: K3's route geometry (1.2) — the document's stated width of 86 is an e
 real route was recovered by exhaustive search; plaintext sourcing and seeding (3.1) —
 recombined public-domain prose, with both a seeded snapshot and a fresh-seed path sharing
 one code path; Tier 4 scoring and the tool-use sandbox (4.1) — cribs plus fitness with no
-pass mark, and server-side code execution first. **Phase 7 opens three more** (7.1), all
-of them blocking its first line of code and none of them blocking Phase 6.
+pass mark, and server-side code execution first. **Phase 7's three are closed too** (7.1):
+a uniform `parameters` list-of-struct so fifteen ciphers share one schema, solver crack
+rate as the difficulty measure with unicity distance as a separate validity gate, and an
+inventory of fifteen mechanisms drawn from an oversized pool. None of them touched Phase 6.
 
 ---
 
@@ -511,23 +515,27 @@ Phase 3's corpus, Phase 2's scoring and Phase 4–6's harness are reused unchang
 `kryptos.scoring` knows what Kryptos is, and `results.score(row, attempt)` is already
 row-driven, so this phase adds ciphers and a difficulty pipeline, not a second harness.
 
-### 7.1 Decision gates 🚩 three open
+### 7.1 Decision gates ✅ all three resolved
 
-- [ ] 🚩 **How do 15 ciphers share one schema?** The rule that split `isomorph_composite`
-      from `isomorph_nulls` — no config may publish a column that is null on most of its
-      rows — does not survive fifteen ciphers in four difficulty configs. A Playfair
-      square, a Hill matrix and a rail-fence depth have no common shape.
-      *Proposed:* one `parameters` list-of-struct field, `[{name, value}]`, both strings,
-      uniform across every cipher and empty for none. Declared as a plain Python list, not
+- [x] 🚩 **How do 15 ciphers share one schema?** *Resolved: one uniform `parameters`
+      list-of-struct field,* `[{name, value}]`, both strings, present and non-empty on
+      every row. The rule that split `isomorph_composite` from `isomorph_nulls` — no config
+      may publish a column that is null on most of its rows — does not survive fifteen
+      ciphers in four difficulty configs, since a Playfair square, a Hill matrix and a
+      rail-fence depth have no common shape. Declared as a plain Python list, not
       `Sequence({...})`, which inverts a struct into a struct-of-lists and fails the cast.
-      `solution` prose stays machine-generated from those parameters, so the readable path
-      is unchanged
-- [ ] 🚩 **What defines a difficulty band?** *Proposed:* solver crack rate at a fixed
-      compute budget, measured per instance, with unicity distance as a separate validity
-      gate. See below — the two do different jobs and conflating them is the failure mode
-- [ ] 🚩 **Which 15 mechanisms, and how many instances each?** *Proposed inventory below.*
-      The count that matters is instances per band per mechanism, since that is what sets
-      the width of a per-cipher confidence interval
+      Values are stringly typed and a Hill matrix needs parsing on the way out; the trade
+      was taken for a browsable dataset viewer over native types in an opaque JSON blob.
+      `solution` prose stays machine-generated from those parameters
+- [x] 🚩 **What defines a difficulty band?** *Resolved: solver crack rate at a recorded
+      compute budget, with unicity distance as a separate validity gate.* The two do
+      different jobs and conflating them is the failure mode — see below
+- [x] 🚩 **Which 15 mechanisms, and how many instances each?** *Resolved: the inventory
+      below, pool of ~600 sweeping length per mechanism, publishing ~240 as 60 per band.*
+      Instances per band per mechanism is what sets the width of a per-cipher confidence
+      interval, and the pool is oversized so bands are filled by selection rather than by
+      hoping the draw lands evenly. Regenerable from a seed, so the published size is a
+      revisable choice rather than a commitment
 
 ### Difficulty is measured, not declared
 
@@ -594,8 +602,14 @@ attacks depend on.
 
 ### 7.3 Solvability instrumentation
 
-- [ ] `suite/unicity.py` — key entropy per mechanism and the redundancy constant, with the
-      derivation in the docstring rather than a bare number
+- [x] `suite/unicity.py` ✅ — key entropy for all sixteen registered mechanisms and the
+      redundancy constant, derived rather than asserted: `log2(26) − 1.5` gives 3.200,
+      which is the figure the literature quotes. Hill's keyspace counts *invertible*
+      matrices via the CRT split of `Z/26`, checked against an exhaustive count of all
+      26⁴ two-by-two matrices rather than trusted to the formula. The entropy used is
+      theoretical keyspace, not the smaller effective keyspace that vocabulary-drawn
+      keywords imply — the conservative direction, since a row clearing the theoretical
+      gate clears the real one
 - [ ] `suite/solvers/` — hill-climb and simulated-annealing drivers over the existing
       quadgram model, plus per-mechanism attacks and brute force where the keyspace admits
 - [ ] `suite/difficulty.py` — the restart harness that turns an instance into a crack
