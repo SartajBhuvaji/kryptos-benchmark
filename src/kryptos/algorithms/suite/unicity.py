@@ -269,6 +269,24 @@ def columnar(width: int) -> float:
     return _log2_factorial(width)
 
 
+def route(width_choices: int, stages: int = 2) -> float:
+    """A grid width and a quarter-turn count per stage -- K3's family of transpositions.
+
+    ``width_choices`` is how many widths the generator could have drawn from, which for a
+    route is the number of divisors of the text length: a width that does not divide the
+    text leaves a ragged final row and is not a route this family admits. Two bits per
+    stage cover the quarter turns.
+
+    Registered because 7.2's inventory lists route among the transpositions, reusing the
+    Phase 1 implementation. It was missing here while the table claimed it, which is the
+    kind of gap the coverage test below now catches.
+
+    >>> round(route(8), 3)
+    10.0
+    """
+    return stages * (math.log2(width_choices) + 2)
+
+
 #: Every mechanism the suite publishes, mapped to the function computing its key entropy.
 #: A generator that adds a cipher without adding it here fails :func:`key_entropy` loudly
 #: rather than defaulting to some entropy nobody chose.
@@ -289,6 +307,7 @@ MECHANISMS = {
     "adfgvx": adfgvx,
     "rail_fence": rail_fence,
     "columnar": columnar,
+    "route": route,
 }
 
 

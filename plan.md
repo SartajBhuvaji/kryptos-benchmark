@@ -25,8 +25,8 @@ not during.
 | 4 — Tiers and paradigms | 13 / 13 ✅ | PR #10, #11. Both paradigms runnable |
 | 5 — Reporting | 7 / 7 ✅ | PR #12. Every comparison is one command |
 | 6 — Running it | 4 / 7 | Controls, providers and the skill in; the pilot is next |
-| 7 — Classical cipher suite | 4 / 18 | Gates closed. Unicity gate in; ciphers next |
-| **Total** | **85 / 102** | |
+| 7 — Classical cipher suite | 4 / 19 | Gates closed, unicity gate in, 3 of 13 ciphers |
+| **Total** | **85 / 103** | |
 
 **Landed so far:** the baseline dataset and its card, the Hub publishing path with
 preflight checks, the benchmark runner with CER/crib scoring and the `--delimited`
@@ -42,7 +42,8 @@ parameters, the four tier framings that pose them, both evaluation paradigms beh
 runner, the reporting layer that turns runs into comparisons, and the runner controls
 that make a long run resumable and cost-bounded. Phase 7 has started at the bottom: the
 unicity gate that decides whether an instance has a unique answer at all, covering all
-sixteen registered mechanisms. 727 tests.
+seventeen registered mechanisms, and the monoalphabetic ciphers it will
+measure. 976 tests.
 
 **The roadmap is complete through Phase 5.** Every measurement the project was built for is runnable with
 all four axes independently selectable — baseline vs isomorph, tier by tier,
@@ -61,9 +62,9 @@ real route was recovered by exhaustive search; plaintext sourcing and seeding (3
 recombined public-domain prose, with both a seeded snapshot and a fresh-seed path sharing
 one code path; Tier 4 scoring and the tool-use sandbox (4.1) — cribs plus fitness with no
 pass mark, and server-side code execution first. **Phase 7's three are closed too** (7.1):
-a uniform `parameters` list-of-struct so fifteen ciphers share one schema, solver crack
+a uniform `parameters` list-of-struct so seventeen ciphers share one schema, solver crack
 rate as the difficulty measure with unicity distance as a separate validity gate, and an
-inventory of fifteen mechanisms drawn from an oversized pool. None of them touched Phase 6.
+inventory of seventeen mechanisms drawn from an oversized pool. None of them touched Phase 6.
 
 ---
 
@@ -520,7 +521,7 @@ row-driven, so this phase adds ciphers and a difficulty pipeline, not a second h
 - [x] 🚩 **How do 15 ciphers share one schema?** *Resolved: one uniform `parameters`
       list-of-struct field,* `[{name, value}]`, both strings, present and non-empty on
       every row. The rule that split `isomorph_composite` from `isomorph_nulls` — no config
-      may publish a column that is null on most of its rows — does not survive fifteen
+      may publish a column that is null on most of its rows — does not survive seventeen
       ciphers in four difficulty configs, since a Playfair square, a Hill matrix and a
       rail-fence depth have no common shape. Declared as a plain Python list, not
       `Sequence({...})`, which inverts a struct into a struct-of-lists and fails the cast.
@@ -582,7 +583,7 @@ tokenization reasons that have nothing to do with its keyspace. The card must sa
 
 ### 7.2 Mechanism inventory
 
-Fifteen classes chosen for mechanistic distinctness, not headcount. Vigenère, Beaufort,
+Seventeen classes chosen for mechanistic distinctness, not headcount. Vigenère, Beaufort,
 Variant Beaufort and Gronsfeld are one mechanism reparameterized — a model that breaks one
 breaks all four — so only Vigenère is carried, and the near-variants are worth at most a
 single recognition probe later. Four already exist from Phases 1 and 3 and are reused.
@@ -602,7 +603,7 @@ attacks depend on.
 
 ### 7.3 Solvability instrumentation
 
-- [x] `suite/unicity.py` ✅ — key entropy for all sixteen registered mechanisms and the
+- [x] `suite/unicity.py` ✅ — key entropy for all seventeen registered mechanisms and the
       redundancy constant, derived rather than asserted: `log2(26) − 1.5` gives 3.200,
       which is the figure the literature quotes. Hill's keyspace counts *invertible*
       matrices via the CRT split of `Z/26`, checked against an exhaustive count of all
@@ -619,9 +620,21 @@ attacks depend on.
 
 ### 7.4 Generators and selection
 
-- [ ] Eleven new ciphers under `algorithms/ciphers/`, same contract as the existing four:
+- [ ] Thirteen new ciphers under `algorithms/ciphers/`, same contract as the existing four:
       `encrypt`/`decrypt` inverse over uppercase, degeneracy hooks for the generator to
-      screen against
+      screen against. **3 of 13 in** — the monoalphabetic chain, `substitution` /
+      `affine` / `caesar`, one substitution step reached three ways rather than three
+      implementations, in the same shape `vigenere` already delegates to `quagmire`.
+      Screens: identity and fixed-point count on substitution, non-invertible and
+      shift-equivalent multipliers on affine, identity and ROT13 on Caesar — the last
+      because ROT13 sits verbatim in every corpus this benchmark scores, so an instance
+      drawn on it measures recall
+- [ ] **Homophonic needs a normalisation decision before it can be generated.** Its
+      ciphertext is numeric symbols, not letters, so `letters_only` reduces it to the
+      empty string and `problem_letters_only` would publish blank. Every other mechanism
+      in the inventory emits A–Z. Either the field is redefined for the suite as "the
+      normalised problem in the cipher's own alphabet", or homophonic is dropped. Does
+      not affect scoring — the `answer` is letters either way
 - [ ] Generate a **pool** larger than the published set, sweeping length per mechanism, so
       the bands are filled by selection rather than by hoping the draw lands evenly
 - [ ] Measure every pooled instance, then select a balanced sample per band
