@@ -37,6 +37,10 @@ where = ["src"]
 # package rather than only working from a source checkout.
 "kryptos.scoring.data" = ["*.txt.gz", "PROVENANCE.md"]
 "kryptos.algorithms.isomorph.data" = ["*.jsonl.gz", "PROVENANCE.md"]
+# The harness is shell as much as Python -- serve.sh and deploy.sh are how a GPU box is
+# brought up, and dropping them from a wheel would leave `kryptos.harness` importable but
+# not runnable.
+"kryptos.harness" = ["*.sh", "README.md"]
 
 [tool.pytest.ini_options]
 pythonpath = ["src"]
